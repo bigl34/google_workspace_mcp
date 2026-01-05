@@ -108,11 +108,20 @@ async def get_doc_content(
     docs_service: Any,
     user_google_email: str,
     document_id: str,
+    suggestions_view_mode: str = None,
 ) -> str:
     """
     Retrieves content of a Google Doc or a Drive file (like .docx) identified by document_id.
     - Native Google Docs: Fetches content via Docs API.
     - Office files (.docx, etc.) stored in Drive: Downloads via Drive API and extracts text.
+
+    Args:
+        document_id: The ID of the document to retrieve.
+        suggestions_view_mode: Optional. How to render suggestions in the response.
+            - SUGGESTIONS_INLINE: Show suggestions inline (pending insertions/deletions visible)
+            - PREVIEW_SUGGESTIONS_ACCEPTED: Preview with all suggestions accepted
+            - PREVIEW_WITHOUT_SUGGESTIONS: Preview with all suggestions rejected
+            If not specified, uses the default view for the requesting user.
 
     Returns:
         str: The document content with metadata header.
@@ -144,9 +153,14 @@ async def get_doc_content(
     # Step 3: Process based on mimeType
     if mime_type == "application/vnd.google-apps.document":
         logger.info("[get_doc_content] Processing as native Google Doc.")
+        # Build API call with optional suggestionsViewMode
+        get_params = {"documentId": document_id, "includeTabsContent": True}
+        if suggestions_view_mode:
+            get_params["suggestionsViewMode"] = suggestions_view_mode
+            logger.info(f"[get_doc_content] Using suggestionsViewMode: {suggestions_view_mode}")
         doc_data = await asyncio.to_thread(
             docs_service.documents()
-            .get(documentId=document_id, includeTabsContent=True)
+            .get(**get_params)
             .execute
         )
         # Tab header format constant
