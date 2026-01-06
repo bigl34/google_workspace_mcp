@@ -74,7 +74,15 @@ SEARCH_CONSOLE_READONLY_SCOPE = "https://www.googleapis.com/auth/webmasters.read
 MERCHANT_CENTER_SCOPE = "https://www.googleapis.com/auth/content"
 
 # Base OAuth scopes required for user identification
-BASE_SCOPES = [USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE, OPENID_SCOPE]
+# Also includes analytics scopes used by external CLI tools
+BASE_SCOPES = [
+    USERINFO_EMAIL_SCOPE,
+    USERINFO_PROFILE_SCOPE,
+    OPENID_SCOPE,
+    ANALYTICS_READONLY_SCOPE,
+    SEARCH_CONSOLE_READONLY_SCOPE,
+    MERCHANT_CENTER_SCOPE,
+]
 
 # Service-specific scope groups
 DOCS_SCOPES = [DOCS_READONLY_SCOPE, DOCS_WRITE_SCOPE]
