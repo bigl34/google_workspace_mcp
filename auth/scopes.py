@@ -64,6 +64,15 @@ TASKS_READONLY_SCOPE = "https://www.googleapis.com/auth/tasks.readonly"
 # Google Custom Search API scope
 CUSTOM_SEARCH_SCOPE = "https://www.googleapis.com/auth/cse"
 
+# Google Analytics API scope
+ANALYTICS_READONLY_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
+
+# Google Search Console API scope
+SEARCH_CONSOLE_READONLY_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
+
+# Google Merchant Center API scope
+MERCHANT_CENTER_SCOPE = "https://www.googleapis.com/auth/content"
+
 # Base OAuth scopes required for user identification
 BASE_SCOPES = [USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE, OPENID_SCOPE]
 
@@ -99,6 +108,12 @@ TASKS_SCOPES = [TASKS_SCOPE, TASKS_READONLY_SCOPE]
 
 CUSTOM_SEARCH_SCOPES = [CUSTOM_SEARCH_SCOPE]
 
+ANALYTICS_SCOPES = [ANALYTICS_READONLY_SCOPE]
+
+SEARCH_CONSOLE_SCOPES = [SEARCH_CONSOLE_READONLY_SCOPE]
+
+MERCHANT_CENTER_SCOPES = [MERCHANT_CENTER_SCOPE]
+
 # Tool-to-scopes mapping
 TOOL_SCOPES_MAP = {
     "gmail": GMAIL_SCOPES,
@@ -111,6 +126,9 @@ TOOL_SCOPES_MAP = {
     "slides": SLIDES_SCOPES,
     "tasks": TASKS_SCOPES,
     "search": CUSTOM_SEARCH_SCOPES,
+    "analytics": ANALYTICS_SCOPES,
+    "search_console": SEARCH_CONSOLE_SCOPES,
+    "merchant_center": MERCHANT_CENTER_SCOPES,
 }
 
 
