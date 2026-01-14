@@ -12,6 +12,7 @@ from .sheets_tools import (
     create_spreadsheet,
     create_sheet,
     write_rich_text_cell,
+    write_rich_text_cells,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "create_spreadsheet",
     "create_sheet",
     "write_rich_text_cell",
+    "write_rich_text_cells",
 ]

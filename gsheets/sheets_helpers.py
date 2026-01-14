@@ -804,14 +804,22 @@ def build_text_format_runs(segments: List[dict]) -> tuple[str, List[dict]]:
     """
     Build stringValue and textFormatRuns from segments for Rich Text cells.
 
-    CRITICAL IMPLEMENTATION NOTES:
+    Supports formatting properties:
+    - url: Hyperlink URI
+    - bold, italic, underline, strikethrough: Boolean text styles
+    - fontSize: Integer font size in points
+    - fontFamily: Font family name string
+    - foregroundColor: Hex color string (#RRGGBB)
+
+    CRITICAL IMPLEMENTATION NOTES (from Codex review):
     1. Uses UTF-16 code units for startIndex (not Python len())
-    2. Skips empty text segments to avoid duplicate indices (API validation error)
-    3. Uses explicit {"link": None} to clear hyperlinks (safer than {})
-    4. Runs must have monotonically increasing startIndex
+    2. Runs must be contiguous starting from index 0
+    3. Each run inherits from cell base format, NOT previous run
+    4. No "reset" runs needed between segments
+    5. backgroundColor is cell-level only, not per-character
 
     Args:
-        segments: List of {"text": str, "url": str|None} objects
+        segments: List of segment dicts with text and optional formatting
 
     Returns:
         Tuple of (full_text, format_runs) where format_runs is the
@@ -819,15 +827,13 @@ def build_text_format_runs(segments: List[dict]) -> tuple[str, List[dict]]:
 
     Example:
         >>> segments = [
-        ...     {"text": "Gorgias #123", "url": "https://gorgias.com/123"},
-        ...     {"text": " | "},
-        ...     {"text": "Shopify", "url": "https://shopify.com/456"}
+        ...     {"text": "WARNING: ", "bold": True, "foregroundColor": "#FF0000"},
+        ...     {"text": "See "},
+        ...     {"text": "ticket #123", "url": "https://gorgias.com/123"}
         ... ]
         >>> text, runs = build_text_format_runs(segments)
         >>> text
-        'Gorgias #123 | Shopify'
-        >>> len(runs)
-        3
+        'WARNING: See ticket #123'
     """
     full_text = ""
     format_runs: List[dict] = []
@@ -835,36 +841,43 @@ def build_text_format_runs(segments: List[dict]) -> tuple[str, List[dict]]:
 
     for segment in segments:
         text = segment.get("text", "")
-        url = segment.get("url")
 
-        # Skip empty segments to avoid duplicate startIndex values
+        # Skip empty segments
         if not text:
             continue
 
         text_utf16_len = utf16_len(text)
 
-        if url:
-            # Add linked run
-            format_runs.append({
-                "startIndex": current_utf16_index,
-                "format": {
-                    "link": {"uri": url}
-                }
-            })
-            # Add explicit unlink run to end the hyperlink
-            # Using {"link": None} is safer than {} which can inherit styles
-            format_runs.append({
-                "startIndex": current_utf16_index + text_utf16_len,
-                "format": {"link": None}
-            })
-        # Non-linked text doesn't need a run (inherits default formatting)
+        # Build format object with all supported properties
+        format_obj: dict = {}
+
+        # Hyperlink
+        if segment.get("url"):
+            format_obj["link"] = {"uri": segment["url"]}
+
+        # Boolean text formatting
+        for prop in ["bold", "italic", "underline", "strikethrough"]:
+            if segment.get(prop):
+                format_obj[prop] = True
+
+        # Font properties (fontSize must be integer)
+        if segment.get("fontSize"):
+            format_obj["fontSize"] = int(segment["fontSize"])
+        if segment.get("fontFamily"):
+            format_obj["fontFamily"] = segment["fontFamily"]
+
+        # Colors (foregroundColor only - backgroundColor is cell-level)
+        if segment.get("foregroundColor"):
+            format_obj["foregroundColor"] = _parse_hex_color(segment["foregroundColor"])
+
+        # ALWAYS emit a run for each segment to maintain contiguity
+        # Even empty format {} is valid - it means "use cell default"
+        format_runs.append({
+            "startIndex": current_utf16_index,
+            "format": format_obj
+        })
 
         full_text += text
         current_utf16_index += text_utf16_len
-
-    # Remove trailing reset run if it's at the end of the string
-    # (no need to reset formatting after the last character)
-    if format_runs and format_runs[-1]["startIndex"] >= current_utf16_index:
-        format_runs.pop()
 
     return full_text, format_runs
