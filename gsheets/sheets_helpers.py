@@ -748,3 +748,123 @@ def _build_gradient_rule(
         rule_body["gradientRule"]["midpoint"] = gradient_points[1]
         rule_body["gradientRule"]["maxpoint"] = gradient_points[2]
     return rule_body
+
+
+# ============================================================================
+# Rich Text Helpers (for multi-hyperlink cell support)
+# ============================================================================
+
+
+def utf16_len(text: str) -> int:
+    """
+    Calculate UTF-16 code unit length (what Google Sheets uses for startIndex).
+
+    CRITICAL: Google Sheets textFormatRuns use UTF-16 code units for startIndex,
+    NOT Python codepoints. This matters for emoji, some CJK characters, and
+    other non-BMP (Basic Multilingual Plane) characters.
+
+    Examples:
+        utf16_len("hello") -> 5
+        utf16_len("👍") -> 2  (emoji is a surrogate pair)
+        utf16_len("𝕳𝖊𝖑𝖑𝖔") -> 10  (mathematical letters)
+    """
+    return len(text.encode("utf-16-le")) // 2
+
+
+def parse_single_cell_a1(cell_ref: str) -> tuple[int, int]:
+    """
+    Parse a single cell A1 reference to 0-indexed (row, col).
+
+    Handles:
+        - Simple refs: "A1", "AD2"
+        - Sheet prefixes: "Sheet1!AD2" (sheet name is ignored)
+        - Absolute refs: "$A$1", "$AD$2"
+
+    Returns:
+        Tuple of (row_index, col_index), both 0-indexed.
+
+    Raises:
+        UserInputError: If the cell reference is invalid or missing row/column.
+    """
+    # Strip sheet name if present
+    if "!" in cell_ref:
+        cell_ref = cell_ref.split("!")[-1]
+
+    col_idx, row_idx = _parse_a1_part(cell_ref)
+
+    if col_idx is None:
+        raise UserInputError(f"Cell reference '{cell_ref}' must include a column (e.g., 'A1', not '1').")
+    if row_idx is None:
+        raise UserInputError(f"Cell reference '{cell_ref}' must include a row number (e.g., 'A1', not 'A').")
+
+    return row_idx, col_idx
+
+
+def build_text_format_runs(segments: List[dict]) -> tuple[str, List[dict]]:
+    """
+    Build stringValue and textFormatRuns from segments for Rich Text cells.
+
+    CRITICAL IMPLEMENTATION NOTES:
+    1. Uses UTF-16 code units for startIndex (not Python len())
+    2. Skips empty text segments to avoid duplicate indices (API validation error)
+    3. Uses explicit {"link": None} to clear hyperlinks (safer than {})
+    4. Runs must have monotonically increasing startIndex
+
+    Args:
+        segments: List of {"text": str, "url": str|None} objects
+
+    Returns:
+        Tuple of (full_text, format_runs) where format_runs is the
+        textFormatRuns array for the Sheets API.
+
+    Example:
+        >>> segments = [
+        ...     {"text": "Gorgias #123", "url": "https://gorgias.com/123"},
+        ...     {"text": " | "},
+        ...     {"text": "Shopify", "url": "https://shopify.com/456"}
+        ... ]
+        >>> text, runs = build_text_format_runs(segments)
+        >>> text
+        'Gorgias #123 | Shopify'
+        >>> len(runs)
+        3
+    """
+    full_text = ""
+    format_runs: List[dict] = []
+    current_utf16_index = 0
+
+    for segment in segments:
+        text = segment.get("text", "")
+        url = segment.get("url")
+
+        # Skip empty segments to avoid duplicate startIndex values
+        if not text:
+            continue
+
+        text_utf16_len = utf16_len(text)
+
+        if url:
+            # Add linked run
+            format_runs.append({
+                "startIndex": current_utf16_index,
+                "format": {
+                    "link": {"uri": url}
+                }
+            })
+            # Add explicit unlink run to end the hyperlink
+            # Using {"link": None} is safer than {} which can inherit styles
+            format_runs.append({
+                "startIndex": current_utf16_index + text_utf16_len,
+                "format": {"link": None}
+            })
+        # Non-linked text doesn't need a run (inherits default formatting)
+
+        full_text += text
+        current_utf16_index += text_utf16_len
+
+    # Remove trailing reset run if it's at the end of the string
+    # (no need to reset formatting after the last character)
+    if format_runs and format_runs[-1]["startIndex"] >= current_utf16_index:
+        format_runs.pop()
+
+    return full_text, format_runs

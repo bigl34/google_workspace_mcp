@@ -29,6 +29,9 @@ from gsheets.sheets_helpers import (
     _parse_hex_color,
     _select_sheet,
     _values_contain_sheets_errors,
+    # Rich text helpers
+    build_text_format_runs,
+    parse_single_cell_a1,
 )
 
 # Configure module logger
@@ -996,6 +999,155 @@ async def create_sheet(
     logger.info(
         f"Successfully created sheet for {user_google_email}. Sheet ID: {sheet_id}"
     )
+    return text_output
+
+
+@server.tool()
+@handle_http_errors("write_rich_text_cell", service_type="sheets")
+@require_google_service("sheets", "sheets_write")
+async def write_rich_text_cell(
+    service,
+    user_google_email: str,
+    spreadsheet_id: str,
+    cell: str,
+    segments: Union[str, List[dict]],
+    sheet_name: Optional[str] = None,
+) -> str:
+    """
+    Write rich text with multiple hyperlinks to a single cell.
+
+    This tool enables writing cells where different text segments can each have
+    their own clickable hyperlink, all within the same cell. This is useful for
+    creating cells with multiple reference links (e.g., "Gorgias #123 | Shopify Order").
+
+    Args:
+        user_google_email (str): The user's Google email address. Required.
+        spreadsheet_id (str): The ID of the spreadsheet. Required.
+        cell (str): Cell reference in A1 notation (e.g., "AD2", "Sheet1!B5", "$A$1"). Required.
+        segments (Union[str, List[dict]]): List of text segments with optional URLs.
+            Each segment is {"text": str, "url": str|None}.
+            Can be a JSON string or Python list. Required.
+        sheet_name (Optional[str]): Sheet name to write to. If not provided and cell
+            doesn't include sheet name, uses the first sheet.
+
+    Example:
+        segments = [
+            {"text": "Gorgias #123", "url": "https://gorgias.com/ticket/123"},
+            {"text": " | "},
+            {"text": "Shopify Order", "url": "https://shopify.com/order/456"}
+        ]
+        Result: Cell displays "Gorgias #123 | Shopify Order" with each label
+        as a separate clickable link.
+
+    Returns:
+        str: Success message with cell reference and link count.
+    """
+    logger.info(
+        f"[write_rich_text_cell] Invoked. Email: '{user_google_email}', "
+        f"Spreadsheet: {spreadsheet_id}, Cell: {cell}"
+    )
+
+    # Parse segments if JSON string
+    if isinstance(segments, str):
+        try:
+            parsed_segments = json.loads(segments)
+            if not isinstance(parsed_segments, list):
+                raise ValueError(f"segments must be a list, got {type(parsed_segments).__name__}")
+            segments = parsed_segments
+            logger.info(f"[write_rich_text_cell] Parsed JSON string to list with {len(segments)} segments")
+        except json.JSONDecodeError as e:
+            raise UserInputError(f"Invalid JSON format for segments: {e}")
+        except ValueError as e:
+            raise UserInputError(f"Invalid segments structure: {e}")
+
+    # Validate segments structure
+    for i, seg in enumerate(segments):
+        if not isinstance(seg, dict):
+            raise UserInputError(f"segments[{i}] must be a dict with 'text' key, got {type(seg).__name__}")
+        if "text" not in seg:
+            raise UserInputError(f"segments[{i}] must have a 'text' key")
+
+    # Parse cell reference to get row and column indices
+    row_idx, col_idx = parse_single_cell_a1(cell)
+
+    # Get sheet ID - either from sheet_name parameter or fetch from spreadsheet
+    sheet_id = 0
+    if sheet_name:
+        # Look up sheet ID by name
+        spreadsheet = await asyncio.to_thread(
+            service.spreadsheets()
+            .get(
+                spreadsheetId=spreadsheet_id,
+                fields="sheets.properties"
+            )
+            .execute
+        )
+        found = False
+        for sheet in spreadsheet.get("sheets", []):
+            if sheet["properties"]["title"] == sheet_name:
+                sheet_id = sheet["properties"]["sheetId"]
+                found = True
+                break
+        if not found:
+            available = [s.get("properties", {}).get("title", "Unknown") for s in spreadsheet.get("sheets", [])]
+            raise UserInputError(f"Sheet '{sheet_name}' not found. Available: {', '.join(available)}")
+    else:
+        # Use first sheet if no sheet name provided
+        spreadsheet = await asyncio.to_thread(
+            service.spreadsheets()
+            .get(
+                spreadsheetId=spreadsheet_id,
+                fields="sheets.properties"
+            )
+            .execute
+        )
+        sheets = spreadsheet.get("sheets", [])
+        if sheets:
+            sheet_id = sheets[0]["properties"]["sheetId"]
+
+    # Build rich text components
+    full_text, format_runs = build_text_format_runs(segments)
+
+    if not full_text:
+        raise UserInputError("No text content in segments. Ensure at least one segment has non-empty 'text'.")
+
+    # Build batchUpdate request with updateCells
+    body = {
+        "requests": [{
+            "updateCells": {
+                "rows": [{
+                    "values": [{
+                        "userEnteredValue": {"stringValue": full_text},
+                        "textFormatRuns": format_runs
+                    }]
+                }],
+                "fields": "userEnteredValue,textFormatRuns",
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": row_idx,
+                    "endRowIndex": row_idx + 1,
+                    "startColumnIndex": col_idx,
+                    "endColumnIndex": col_idx + 1
+                }
+            }
+        }]
+    }
+
+    # Execute batchUpdate
+    await asyncio.to_thread(
+        service.spreadsheets()
+        .batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        .execute
+    )
+
+    link_count = sum(1 for s in segments if s.get("url"))
+    text_output = (
+        f"Successfully wrote rich text to cell '{cell}' in spreadsheet {spreadsheet_id} "
+        f"for {user_google_email}. Text: '{full_text[:50]}{'...' if len(full_text) > 50 else ''}' "
+        f"with {link_count} hyperlink(s)."
+    )
+
+    logger.info(f"Successfully wrote rich text to {cell} for {user_google_email}.")
     return text_output
 
 

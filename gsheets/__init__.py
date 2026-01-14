@@ -11,6 +11,7 @@ from .sheets_tools import (
     modify_sheet_values,
     create_spreadsheet,
     create_sheet,
+    write_rich_text_cell,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "modify_sheet_values",
     "create_spreadsheet",
     "create_sheet",
+    "write_rich_text_cell",
 ]
