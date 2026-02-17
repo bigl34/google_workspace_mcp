@@ -958,7 +958,7 @@ def build_text_format_runs(segments: List[dict]) -> tuple[str, List[dict]]:
         >>> segments = [
         ...     {"text": "WARNING: ", "bold": True, "foregroundColor": "#FF0000"},
         ...     {"text": "See "},
-        ...     {"text": "ticket #123", "url": "https://gorgias.com/123"}
+        ...     {"text": "ticket #123", "url": "https://example.com/tickets/123"}
         ... ]
         >>> text, runs = build_text_format_runs(segments)
         >>> text

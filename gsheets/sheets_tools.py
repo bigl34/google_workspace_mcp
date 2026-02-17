@@ -1247,7 +1247,7 @@ async def write_rich_text_cell(
 
     This tool enables writing cells where different text segments can each have
     their own clickable hyperlink, all within the same cell. This is useful for
-    creating cells with multiple reference links (e.g., "Gorgias #123 | Shopify Order").
+    creating cells with multiple reference links (e.g., "Issue #123 | Order #456").
 
     Args:
         user_google_email (str): The user's Google email address. Required.
@@ -1261,11 +1261,11 @@ async def write_rich_text_cell(
 
     Example:
         segments = [
-            {"text": "Gorgias #123", "url": "https://gorgias.com/ticket/123"},
+            {"text": "Issue #123", "url": "https://example.com/issues/123"},
             {"text": " | "},
-            {"text": "Shopify Order", "url": "https://shopify.com/order/456"}
+            {"text": "Order #456", "url": "https://example.com/orders/456"}
         ]
-        Result: Cell displays "Gorgias #123 | Shopify Order" with each label
+        Result: Cell displays "Issue #123 | Order #456" with each label
         as a separate clickable link.
 
     Returns:
