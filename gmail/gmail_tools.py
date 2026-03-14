@@ -7,6 +7,7 @@ This module provides MCP tools for interacting with the Gmail API.
 import logging
 import asyncio
 import base64
+import binascii
 import re
 import ssl
 import mimetypes
@@ -43,6 +44,7 @@ logger = logging.getLogger(__name__)
 GMAIL_BATCH_SIZE = 25
 GMAIL_REQUEST_DELAY = 0.1
 HTML_BODY_TRUNCATE_LIMIT = 20000
+RAW_BODY_TRUNCATE_LIMIT = 20000
 
 GMAIL_METADATA_HEADERS = [
     "Subject",
@@ -940,9 +942,13 @@ async def get_gmail_message_content(
         )
         raw_data = message_raw.get("raw", "")
         if raw_data:
-            decoded_raw = base64.urlsafe_b64decode(raw_data).decode(
-                "utf-8", errors="replace"
-            )
+            padded_raw = raw_data + "=" * (-len(raw_data) % 4)
+            try:
+                decoded_raw = base64.urlsafe_b64decode(padded_raw).decode(
+                    "utf-8", errors="replace"
+                )
+            except (binascii.Error, ValueError) as exc:
+                decoded_raw = f"[Failed to decode raw MIME: {exc}]"
         else:
             decoded_raw = "[No raw content found]"
 
@@ -957,6 +963,10 @@ async def get_gmail_message_content(
             content_lines.append(f"To:      {to}")
         if cc:
             content_lines.append(f"Cc:      {cc}")
+        if len(decoded_raw) > RAW_BODY_TRUNCATE_LIMIT:
+            decoded_raw = (
+                decoded_raw[:RAW_BODY_TRUNCATE_LIMIT] + "\n\n[Content truncated...]"
+            )
         content_lines.append(f"\n--- RAW MIME ---\n{decoded_raw}")
         return "\n".join(content_lines)
 
