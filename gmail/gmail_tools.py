@@ -28,6 +28,7 @@ from core.utils import (
     validate_file_path,
     UserInputError,
     StringList,
+    JsonDict,
 )
 from core.server import server
 from auth.scopes import (
@@ -2217,8 +2218,8 @@ async def manage_gmail_filter(
     service,
     user_google_email: str,
     action: str,
-    criteria: Optional[Dict[str, Any]] = None,
-    filter_action: Optional[Dict[str, Any]] = None,
+    criteria: Optional[JsonDict] = None,
+    filter_action: Optional[JsonDict] = None,
     filter_id: Optional[str] = None,
 ) -> str:
     """

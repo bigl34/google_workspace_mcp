@@ -33,6 +33,19 @@ class UserInputError(Exception):
     pass
 
 
+def _coerce_json_str_to_type(v: Any, expected_type: type) -> Any:
+    """Coerce a JSON-encoded string to a specific container type."""
+    if not isinstance(v, str):
+        return v
+
+    try:
+        parsed = json.loads(v)
+    except (json.JSONDecodeError, TypeError):
+        return v
+
+    return parsed if isinstance(parsed, expected_type) else v
+
+
 def _coerce_json_str_to_list(v: Any) -> Any:
     """Coerce a JSON-encoded string to a list.
 
@@ -40,14 +53,7 @@ def _coerce_json_str_to_list(v: Any) -> Any:
     rather than native arrays.  This ``BeforeValidator`` transparently converts
     ``'["a","b"]'`` → ``["a", "b"]`` so Pydantic validation succeeds.
     """
-    if isinstance(v, str):
-        try:
-            parsed = json.loads(v)
-            if isinstance(parsed, list):
-                return parsed
-        except (json.JSONDecodeError, TypeError):
-            pass
-    return v
+    return _coerce_json_str_to_type(v, list)
 
 
 StringList = Annotated[List[str], BeforeValidator(_coerce_json_str_to_list)]
@@ -55,6 +61,24 @@ StringList = Annotated[List[str], BeforeValidator(_coerce_json_str_to_list)]
 
 Use in tool signatures instead of ``List[str]`` to work around MCP clients
 that send ``'["value"]'`` instead of ``["value"]``.
+"""
+
+
+def _coerce_json_str_to_dict(v: Any) -> Any:
+    """Coerce a JSON-encoded string to a dict.
+
+    Some MCP clients serialise dict parameters as JSON strings rather than
+    native objects.  This ``BeforeValidator`` transparently converts
+    ``'{"key":"val"}'`` -> ``{"key": "val"}`` so Pydantic validation succeeds.
+    """
+    return _coerce_json_str_to_type(v, dict)
+
+
+JsonDict = Annotated[dict[str, Any], BeforeValidator(_coerce_json_str_to_dict)]
+"""``dict`` that also accepts a JSON-encoded string of an object.
+
+Use in tool signatures instead of ``Dict[str, Any]`` to work around MCP clients
+that send ``'{"key":"val"}'`` instead of ``{"key": "val"}``.
 """
 
 
