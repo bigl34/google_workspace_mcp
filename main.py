@@ -46,10 +46,11 @@ logger = logging.getLogger(__name__)
 
 configure_file_logging()
 
-VALID_SERVICES = frozenset({
+SERVICE_NAMES = (
     "gmail", "drive", "calendar", "docs", "sheets", "chat",
     "forms", "slides", "tasks", "contacts", "search", "appscript",
-})
+)
+VALID_SERVICES = frozenset(SERVICE_NAMES)
 
 
 def safe_print(text):
@@ -312,20 +313,20 @@ def main():
     safe_print("")
 
     # Import tool modules to register them with the MCP server via decorators
-    tool_imports = {
-        "gmail": lambda: import_module("gmail.gmail_tools"),
-        "drive": lambda: import_module("gdrive.drive_tools"),
-        "calendar": lambda: import_module("gcalendar.calendar_tools"),
-        "docs": lambda: import_module("gdocs.docs_tools"),
-        "sheets": lambda: import_module("gsheets.sheets_tools"),
-        "chat": lambda: import_module("gchat.chat_tools"),
-        "forms": lambda: import_module("gforms.forms_tools"),
-        "slides": lambda: import_module("gslides.slides_tools"),
-        "tasks": lambda: import_module("gtasks.tasks_tools"),
-        "contacts": lambda: import_module("gcontacts.contacts_tools"),
-        "search": lambda: import_module("gsearch.search_tools"),
-        "appscript": lambda: import_module("gappsscript.apps_script_tools"),
-    }
+    tool_imports = dict(zip(SERVICE_NAMES, [
+        lambda: import_module("gmail.gmail_tools"),
+        lambda: import_module("gdrive.drive_tools"),
+        lambda: import_module("gcalendar.calendar_tools"),
+        lambda: import_module("gdocs.docs_tools"),
+        lambda: import_module("gsheets.sheets_tools"),
+        lambda: import_module("gchat.chat_tools"),
+        lambda: import_module("gforms.forms_tools"),
+        lambda: import_module("gslides.slides_tools"),
+        lambda: import_module("gtasks.tasks_tools"),
+        lambda: import_module("gcontacts.contacts_tools"),
+        lambda: import_module("gsearch.search_tools"),
+        lambda: import_module("gappsscript.apps_script_tools"),
+    ]))
 
     tool_icons = {
         "gmail": "📧",
