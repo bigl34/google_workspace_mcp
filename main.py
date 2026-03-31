@@ -1,3 +1,4 @@
+import io
 import argparse
 import logging
 import os
@@ -6,12 +7,13 @@ import sys
 from importlib import metadata, import_module
 from dotenv import load_dotenv
 
-# Check for CLI mode early - before loading oauth_config
-# CLI mode requires OAuth 2.0 since there's no MCP session context
-_CLI_MODE = "--cli" in sys.argv
-if _CLI_MODE:
-    os.environ["MCP_ENABLE_OAUTH21"] = "false"
-    os.environ["WORKSPACE_MCP_STATELESS_MODE"] = "false"
+# Prevent any stray startup output on macOS (e.g. platform identifiers) from
+# corrupting the MCP JSON-RPC handshake on stdout. We capture anything written
+# to stdout during module-level initialisation and replay it to stderr so that
+# diagnostic information is not lost.
+_original_stdout = sys.stdout
+if sys.platform == "darwin":
+    sys.stdout = io.StringIO()
 
 from auth.oauth_config import reload_oauth_config, is_stateless_mode  # noqa: E402
 from core.log_formatter import EnhancedLogFormatter, configure_file_logging  # noqa: E402
@@ -46,10 +48,6 @@ configure_file_logging()
 
 
 def safe_print(text):
-    # Don't print in CLI mode - we want clean output
-    if _CLI_MODE:
-        return
-
     # Don't print to stderr when running as MCP server via uvx to avoid JSON parsing errors
     # Check if we're running as MCP server (no TTY and uvx in process name)
     if not sys.stderr.isatty():
@@ -117,18 +115,35 @@ def narrow_permissions_to_services(
     }
 
 
+def _restore_stdout() -> None:
+    """Restore the real stdout and replay any captured output to stderr."""
+    captured_stdout = sys.stdout
+
+    # Idempotent: if already restored, nothing to do.
+    if captured_stdout is _original_stdout:
+        return
+
+    captured = ""
+    required_stringio_methods = ("getvalue", "write", "flush")
+    try:
+        if all(
+            callable(getattr(captured_stdout, method_name, None))
+            for method_name in required_stringio_methods
+        ):
+            captured = captured_stdout.getvalue()
+    finally:
+        sys.stdout = _original_stdout
+
+    if captured:
+        print(captured, end="", file=sys.stderr)
+
+
 def main():
     """
     Main entry point for the Google Workspace MCP server.
     Uses FastMCP's native streamable-http transport.
-    Supports CLI mode for direct tool invocation without running the server.
     """
-    # Check if CLI mode is enabled - suppress startup messages
-    if _CLI_MODE:
-        # Suppress logging output in CLI mode for clean output
-        logging.getLogger().setLevel(logging.ERROR)
-        logging.getLogger("auth").setLevel(logging.ERROR)
-        logging.getLogger("core").setLevel(logging.ERROR)
+    _restore_stdout()
 
     # Configure safe logging for Windows Unicode handling
     configure_safe_logging()
@@ -171,12 +186,6 @@ def main():
         help="Transport mode: stdio (default) or streamable-http",
     )
     parser.add_argument(
-        "--cli",
-        nargs=argparse.REMAINDER,
-        metavar="COMMAND",
-        help="Run in CLI mode for direct tool invocation. Use --cli to list tools, --cli <tool_name> to run a tool.",
-    )
-    parser.add_argument(
         "--read-only",
         action="store_true",
         help="Run in read-only mode - requests only read-only scopes and disables tools requiring write permissions",
@@ -194,11 +203,6 @@ def main():
         ),
     )
     args = parser.parse_args()
-
-    # Clean up CLI args - argparse.REMAINDER may include leading dashes from first arg
-    if args.cli is not None:
-        # Filter out empty strings that might appear
-        args.cli = [a for a in args.cli if a]
 
     # Validate mutually exclusive flags
     if args.permissions and args.read_only:
@@ -409,15 +413,6 @@ def main():
     # Filter tools based on tier configuration (if tier-based loading is enabled)
     filter_server_tools(server)
 
-    # Handle CLI mode - execute tool and exit
-    if args.cli is not None:
-        import asyncio
-        from core.cli_handler import handle_cli_mode
-
-        # CLI mode - run tool directly and exit
-        exit_code = asyncio.run(handle_cli_mode(server, args.cli))
-        sys.exit(exit_code)
-
     safe_print("📊 Configuration Summary:")
     safe_print(f"   🔧 Services Loaded: {len(tools_to_import)}/{len(tool_imports)}")
     if args.tool_tier is not None:
@@ -517,7 +512,12 @@ def main():
                 )
                 sys.exit(1)
 
-            server.run(transport="streamable-http", host=host, port=port)
+            server.run(
+                transport="streamable-http",
+                host=host,
+                port=port,
+                stateless_http=is_stateless_mode(),
+            )
         else:
             server.run()
     except KeyboardInterrupt:
