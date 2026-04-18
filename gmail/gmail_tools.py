@@ -12,8 +12,11 @@ import re
 import ssl
 import mimetypes
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Annotated, Optional, List, Dict, Literal, Any
+from urllib.parse import unquote, urlparse, urlunsplit
 
+import httpx
 from email.message import EmailMessage
 from email.policy import SMTP
 from email.utils import formataddr
@@ -22,6 +25,13 @@ from pydantic import Field
 from googleapiclient.errors import HttpError
 
 from auth.service_decorator import require_google_service
+from core.attachment_storage import get_attachment_storage, STORAGE_DIR
+from core.config import (
+    WORKSPACE_EXTERNAL_URL,
+    WORKSPACE_MCP_BASE_URI,
+    WORKSPACE_MCP_PORT,
+)
+from core.http_utils import ssrf_safe_stream
 from core.utils import (
     handle_http_errors,
     validate_file_path,
@@ -737,6 +747,222 @@ async def _fetch_thread_message_ids(service, thread_id: str) -> List[str]:
     return context.get("message_ids", [])
 
 
+MAX_EMAIL_ATTACHMENT_BYTES = 25 * 1024 * 1024  # 25 MB Gmail attachment limit
+
+
+def _redact_url(url: str) -> str:
+    """Remove query/fragment components before surfacing a URL in errors or logs."""
+    parsed = urlparse(url)
+    if not parsed.scheme and not parsed.netloc:
+        return parsed.path or url
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
+def _get_trusted_attachment_origins() -> set[tuple[str, str]]:
+    """Return local origins allowed to resolve /attachments/{id} from disk."""
+    origins: set[tuple[str, str]] = set()
+    for origin in (
+        WORKSPACE_EXTERNAL_URL,
+        f"{WORKSPACE_MCP_BASE_URI}:{WORKSPACE_MCP_PORT}",
+    ):
+        if not origin:
+            continue
+        parsed = urlparse(origin)
+        if parsed.scheme and parsed.netloc:
+            origins.add((parsed.scheme.lower(), parsed.netloc.lower()))
+    return origins
+
+
+def _read_attachment_bytes(file_path: Path) -> bytes:
+    """Read a local attachment after enforcing the Gmail size limit."""
+    size_bytes = file_path.stat().st_size
+    if size_bytes > MAX_EMAIL_ATTACHMENT_BYTES:
+        raise ValueError(
+            f"Attachment exceeds {MAX_EMAIL_ATTACHMENT_BYTES} bytes: {file_path.name}"
+        )
+    return file_path.read_bytes()
+
+
+_ATTACHMENT_TIMEOUT = httpx.Timeout(connect=10, read=30, write=10, pool=10)
+
+
+async def _download_attachment_bytes(url: str) -> tuple[bytes, httpx.Response]:
+    """Download an attachment with streaming size enforcement."""
+    total_bytes = 0
+    chunks: list[bytes] = []
+    redacted_url = _redact_url(url)
+
+    async with ssrf_safe_stream(url, timeout=_ATTACHMENT_TIMEOUT) as resp:
+        if resp.status_code != 200:
+            raise ValueError(
+                f"Failed to fetch attachment URL {redacted_url} (status {resp.status_code})"
+            )
+
+        async for chunk in resp.aiter_bytes(chunk_size=256 * 1024):
+            total_bytes += len(chunk)
+            if total_bytes > MAX_EMAIL_ATTACHMENT_BYTES:
+                raise ValueError(
+                    f"Attachment from {redacted_url} exceeds 25 MB Gmail limit ({total_bytes} bytes)"
+                )
+            chunks.append(chunk)
+
+        return b"".join(chunks), resp
+
+
+def _build_attachment_error_entry(
+    attachment: Dict[str, Any], exc: Exception
+) -> Dict[str, Any]:
+    """Preserve failed attachment context so message creation can continue."""
+    failed_attachment = dict(attachment)
+    if "url" in failed_attachment:
+        failed_attachment["display_url"] = _redact_url(str(failed_attachment["url"]))
+    failed_attachment["error"] = str(exc)
+    failed_attachment["error_type"] = type(exc).__name__
+    return failed_attachment
+
+
+def _format_resolved_attachment_error(attachment: Dict[str, Any]) -> str:
+    """Render a pre-resolved attachment failure for user-facing reporting."""
+    label = (
+        attachment.get("filename")
+        or attachment.get("display_url")
+        or (
+            _redact_url(str(attachment["url"]))
+            if attachment.get("url")
+            else attachment.get("path")
+        )
+        or "attachment"
+    )
+    detail = attachment.get("error", "attachment could not be resolved")
+    error_type = attachment.get("error_type")
+    if error_type:
+        detail = f"{error_type}: {detail}"
+    return f"{label}: {detail}"
+
+
+def _try_read_local_attachment(url: str) -> Optional[tuple[bytes, str, Optional[str]]]:
+    """Try to resolve a URL as an MCP attachment stored on local disk.
+
+    Returns (data, filename, mime_type) if the URL points to a local
+    ``/attachments/{file_id}`` resource, otherwise ``None``.
+    """
+    parsed = urlparse(url)
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) != 2 or parts[0] != "attachments":
+        return None
+    if parsed.netloc:
+        origin = (parsed.scheme.lower(), parsed.netloc.lower())
+        if origin not in _get_trusted_attachment_origins():
+            return None
+
+    file_id = parts[1]
+    storage = get_attachment_storage()
+    metadata = storage.get_attachment_metadata(file_id)
+    if metadata is None:
+        logger.debug(
+            "Attachment metadata missing for %s; refusing local fallback under %s",
+            file_id,
+            STORAGE_DIR,
+        )
+        return None
+
+    file_path = storage.get_attachment_path(file_id)
+    if file_path is None:
+        logger.debug(
+            "Attachment file path missing for %s; refusing local fallback under %s",
+            file_id,
+            STORAGE_DIR,
+        )
+        return None
+
+    file_path = Path(file_path)
+    data = _read_attachment_bytes(file_path)
+    filename = metadata["filename"]
+    mime_type = metadata.get("mime_type")
+    return data, filename, mime_type
+
+
+async def _resolve_url_attachments(
+    attachments: Optional[List[Dict[str, Any]]],
+) -> Optional[List[Dict[str, Any]]]:
+    """Pre-resolve any URL-based attachments to raw bytes.
+
+    For each attachment dict that carries a ``url`` key:
+    * If the URL matches the MCP's own ``/attachments/{id}`` pattern the file
+      is read directly from :data:`STORAGE_DIR` (avoids HTTP + SSRF blocks on
+      localhost).
+    * Otherwise the URL is fetched via :func:`ssrf_safe_fetch`.
+
+    The resolved entry replaces ``url`` with ``_resolved_bytes`` (raw
+    ``bytes``) so that :func:`_prepare_gmail_message` can attach it without a
+    redundant base64 round-trip.
+    """
+    if not attachments:
+        return attachments
+
+    resolved: List[Dict[str, Any]] = []
+    for att in attachments:
+        if "url" not in att:
+            resolved.append(att)
+            continue
+
+        url = att["url"]
+        filename = att.get("filename")
+        mime_type = att.get("mime_type")
+
+        # Fast path: MCP-local attachment URL.
+        try:
+            local = _try_read_local_attachment(url)
+        except Exception as exc:
+            logger.exception("Failed to read local attachment URL %s", _redact_url(url))
+            resolved.append(_build_attachment_error_entry(att, exc))
+            continue
+        if local is not None:
+            data, local_filename, local_mime = local
+            resolved.append(
+                {
+                    "_resolved_bytes": data,
+                    "filename": filename or local_filename,
+                    "mime_type": mime_type or local_mime,
+                }
+            )
+            continue
+
+        # External URL — SSRF-safe fetch.
+        try:
+            data, resp = await _download_attachment_bytes(url)
+        except Exception as exc:
+            logger.exception("Failed to fetch attachment URL %s", _redact_url(url))
+            resolved.append(_build_attachment_error_entry(att, exc))
+            continue
+
+        # Infer filename from URL path if not provided.
+        if not filename:
+            url_path = urlparse(url).path
+            candidate = unquote(url_path.rsplit("/", 1)[-1]) if url_path else ""
+            filename = candidate if candidate and "." in candidate else "attachment"
+
+        # Infer MIME type from Content-Type header or filename.
+        if not mime_type:
+            ct = resp.headers.get("content-type", "")
+            # Strip parameters (e.g. "text/plain; charset=utf-8")
+            ct_base = ct.split(";", 1)[0].strip()
+            if ct_base and ct_base != "application/octet-stream":
+                mime_type = ct_base
+            elif filename:
+                mime_type, _ = mimetypes.guess_type(filename)
+
+        resolved.append(
+            {
+                "_resolved_bytes": data,
+                "filename": filename,
+                "mime_type": mime_type,
+            }
+        )
+
+    return resolved
+
+
 def _prepare_gmail_message(
     subject: str,
     body: str,
@@ -824,13 +1050,25 @@ def _prepare_gmail_message(
         message.set_content(body)
 
     for attachment in attachments or []:
+        if attachment.get("error"):
+            attachment_errors.append(_format_resolved_attachment_error(attachment))
+            continue
+
         file_path = attachment.get("path")
         filename = attachment.get("filename")
         content_base64 = attachment.get("content")
+        resolved_bytes = attachment.get("_resolved_bytes")
         mime_type = attachment.get("mime_type")
 
         try:
-            if file_path:
+            if resolved_bytes is not None:
+                # Pre-resolved from a URL by _resolve_url_attachments.
+                file_data = resolved_bytes
+                if not filename:
+                    filename = "attachment"
+                if not mime_type:
+                    mime_type = "application/octet-stream"
+            elif file_path:
                 path_obj = validate_file_path(file_path)
                 if not path_obj.exists():
                     logger.error(f"File not found: {file_path}")
@@ -855,7 +1093,7 @@ def _prepare_gmail_message(
                 if not mime_type:
                     mime_type = "application/octet-stream"
             else:
-                logger.warning("Skipping attachment: missing both path and content")
+                logger.warning("Skipping attachment: missing path, content, and url")
                 continue
 
             safe_filename = (
@@ -1560,7 +1798,7 @@ async def send_gmail_message(
     attachments: Annotated[
         Optional[DictList],
         Field(
-            description='Optional list of attachments. Each can have: "path" (file path, auto-encodes), OR "content" (standard base64, not urlsafe) + "filename". Optional "mime_type". Example: [{"path": "/path/to/file.pdf"}] or [{"filename": "doc.pdf", "content": "base64data", "mime_type": "application/pdf"}]',
+            description='Optional list of attachments. Each can have: "url" (fetch from URL — works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR "path" (file path, auto-encodes), OR "content" (standard base64, not urlsafe) + "filename". Optional "mime_type". Example: [{"url": "https://host/attachments/abc-123", "filename": "report.pdf"}]',
         ),
     ] = None,
 ) -> str:
@@ -1667,6 +1905,7 @@ async def send_gmail_message(
     # Prepare the email message
     # Use from_email (Send As alias) if provided, otherwise default to authenticated user
     sender_email = from_email or user_google_email
+    resolved_attachments = await _resolve_url_attachments(attachments)
     raw_message, thread_id_final, attached_count, attachment_errors = (
         _prepare_gmail_message(
             subject=subject,
@@ -1680,7 +1919,7 @@ async def send_gmail_message(
             body_format=body_format,
             from_email=sender_email,
             from_name=from_name,
-            attachments=attachments if attachments else None,
+            attachments=resolved_attachments if resolved_attachments else None,
         )
     )
 
@@ -1773,7 +2012,7 @@ async def draft_gmail_message(
     attachments: Annotated[
         Optional[DictList],
         Field(
-            description="Optional list of attachments. Each can have: 'path' (file path, auto-encodes), OR 'content' (standard base64, not urlsafe) + 'filename'. Optional 'mime_type' (auto-detected from path if not provided).",
+            description="Optional list of attachments. Each can have: 'url' (fetch from URL — works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR 'path' (file path, auto-encodes), OR 'content' (standard base64, not urlsafe) + 'filename'. Optional 'mime_type' (auto-detected if not provided).",
         ),
     ] = None,
     include_signature: Annotated[
@@ -1930,6 +2169,7 @@ async def draft_gmail_message(
     else:
         draft_body = _append_signature_to_body(draft_body, body_format, signature_html)
 
+    resolved_attachments = await _resolve_url_attachments(attachments)
     raw_message, thread_id_final, attached_count, attachment_errors = (
         _prepare_gmail_message(
             subject=subject,
@@ -1943,7 +2183,7 @@ async def draft_gmail_message(
             references=references,
             from_email=sender_email,
             from_name=from_name,
-            attachments=attachments,
+            attachments=resolved_attachments,
         )
     )
 
