@@ -92,22 +92,32 @@ that send ``'{"key":"val"}'`` instead of ``{"key": "val"}``.
 
 
 # Directories from which local file reads are allowed.
-# The user's home directory is the default safe base.
+# By default, only the managed attachment storage directory is trusted.
 # Override via ALLOWED_FILE_DIRS env var (os.pathsep-separated paths).
 _ALLOWED_FILE_DIRS_ENV = "ALLOWED_FILE_DIRS"
 
 
 def _get_allowed_file_dirs() -> list[Path]:
     """Return the list of directories from which local file access is permitted."""
+    from core.attachment_storage import STORAGE_DIR
+
+    allowed_dirs: list[Path] = [STORAGE_DIR]
     env_val = os.environ.get(_ALLOWED_FILE_DIRS_ENV)
     if env_val:
-        return [
-            Path(p.strip()).expanduser().resolve()
+        allowed_dirs.extend(
+            Path(p_stripped).expanduser().resolve()
             for p in env_val.split(os.pathsep)
-            if p.strip()
-        ]
-    home = Path.home()
-    return [home] if home else []
+            if (p_stripped := p.strip())
+        )
+
+    unique_dirs: list[Path] = []
+    seen: set[Path] = set()
+    for path in allowed_dirs:
+        if path in seen:
+            continue
+        seen.add(path)
+        unique_dirs.append(path)
+    return unique_dirs
 
 
 def validate_file_path(file_path: str) -> Path:
@@ -209,7 +219,8 @@ def validate_file_path(file_path: str) -> Path:
     if not allowed_dirs:
         raise ValueError(
             "No allowed file directories configured. "
-            "Set the ALLOWED_FILE_DIRS environment variable or ensure a home directory exists."
+            "Set the ALLOWED_FILE_DIRS environment variable or configure "
+            "WORKSPACE_ATTACHMENT_DIR."
         )
 
     for allowed in allowed_dirs:

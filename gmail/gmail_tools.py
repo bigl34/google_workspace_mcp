@@ -560,8 +560,8 @@ def _format_attachment_error(
             detail = (
                 "local file access is limited to the server's permitted directories, "
                 f"so '{file_path}' could not be read. Files on external mounts such as "
-                "/run/media may be blocked; move the file into an allowed directory or "
-                "set ALLOWED_FILE_DIRS."
+                "/run/media may be blocked; move the file into the managed attachment "
+                "directory or another allowed directory, or set ALLOWED_FILE_DIRS."
             )
 
     return f"{label}: {detail}"
