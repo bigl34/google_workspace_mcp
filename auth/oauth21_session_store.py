@@ -10,7 +10,7 @@ import contextvars
 import json
 import logging
 import os
-from typing import Dict, Optional, Any, Tuple
+from typing import Dict, Optional, Any, Tuple, Callable, IO
 from threading import RLock
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
@@ -273,12 +273,12 @@ class OAuth21SessionStore:
         return bool(expired_states)
 
     def _load_oauth_states_from_file_handle(
-        self, file_handle
-    ) -> Dict[str, Dict[str, Any]]:
+        self, file_handle: IO[str]
+    ) -> Tuple[Dict[str, Dict[str, Any]], bool]:
         file_handle.seek(0)
         raw = file_handle.read()
         if not raw.strip():
-            return {}
+            return {}, False
 
         try:
             payload = json.loads(raw)
@@ -287,24 +287,26 @@ class OAuth21SessionStore:
                 "OAuth state file %s is invalid JSON; resetting it",
                 self._oauth_state_file,
             )
-            return {}
+            return {}, True
 
         if not isinstance(payload, dict):
             logger.warning(
                 "OAuth state file %s has unexpected contents; resetting it",
                 self._oauth_state_file,
             )
-            return {}
+            return {}, True
 
         oauth_states = {}
         for state, state_info in payload.items():
             if isinstance(state_info, dict):
                 oauth_states[state] = self._deserialize_oauth_state_entry(state_info)
-        self._remove_expired_oauth_states_from_dict(oauth_states)
-        return oauth_states
+        removed_expired = self._remove_expired_oauth_states_from_dict(oauth_states)
+        return oauth_states, removed_expired
 
     def _write_oauth_states_to_file_handle(
-        self, file_handle, oauth_states: Dict[str, Dict[str, Any]]
+        self,
+        file_handle: IO[str],
+        oauth_states: Dict[str, Dict[str, Any]],
     ) -> None:
         serialized = {
             state: self._serialize_oauth_state_entry(state_info)
@@ -317,16 +319,20 @@ class OAuth21SessionStore:
         os.fsync(file_handle.fileno())
 
     def _update_shared_oauth_states(
-        self, mutator
+        self,
+        mutator: Callable[[Dict[str, Dict[str, Any]]], Tuple[Any, bool]],
     ) -> Tuple[Any, Dict[str, Dict[str, Any]]]:
         self._ensure_oauth_state_directory()
         fd = os.open(self._oauth_state_file, os.O_RDWR | os.O_CREAT, 0o600)
         with os.fdopen(fd, "r+", encoding="utf-8") as file_handle:
             fcntl.flock(file_handle.fileno(), fcntl.LOCK_EX)
             try:
-                oauth_states = self._load_oauth_states_from_file_handle(file_handle)
-                result = mutator(oauth_states)
-                self._write_oauth_states_to_file_handle(file_handle, oauth_states)
+                oauth_states, cleaned_expired = self._load_oauth_states_from_file_handle(
+                    file_handle
+                )
+                result, mutated = mutator(oauth_states)
+                if cleaned_expired or mutated:
+                    self._write_oauth_states_to_file_handle(file_handle, oauth_states)
                 return result, oauth_states
             finally:
                 fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
@@ -336,7 +342,7 @@ class OAuth21SessionStore:
     ) -> None:
         def mutator(oauth_states):
             oauth_states[state] = state_info
-            return None
+            return None, True
 
         self._update_shared_oauth_states(mutator)
 
@@ -344,7 +350,8 @@ class OAuth21SessionStore:
         self, state: str
     ) -> Optional[Dict[str, Any]]:
         def mutator(oauth_states):
-            return oauth_states.pop(state, None)
+            state_info = oauth_states.pop(state, None)
+            return state_info, state_info is not None
 
         result, _ = self._update_shared_oauth_states(mutator)
         return result
@@ -354,7 +361,7 @@ class OAuth21SessionStore:
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         def mutator(oauth_states):
             if not oauth_states:
-                return None
+                return None, False
 
             latest_state = max(
                 oauth_states.keys(),
@@ -363,7 +370,7 @@ class OAuth21SessionStore:
                     datetime.min.replace(tzinfo=timezone.utc),
                 ),
             )
-            return latest_state, oauth_states.pop(latest_state)
+            return (latest_state, oauth_states.pop(latest_state)), True
 
         result, _ = self._update_shared_oauth_states(mutator)
         return result
