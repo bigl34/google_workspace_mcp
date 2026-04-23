@@ -2269,9 +2269,7 @@ def _format_thread_content(
     for i, message in enumerate(messages, 1):
         payload = message.get("payload", {})
         # Extract headers
-        headers = {
-            h["name"]: h["value"] for h in payload.get("headers", [])
-        }
+        headers = {h["name"]: h["value"] for h in payload.get("headers", [])}
 
         sender = headers.get("From", "(unknown sender)")
         date = headers.get("Date", "(unknown date)")
