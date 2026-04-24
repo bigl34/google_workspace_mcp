@@ -24,31 +24,48 @@ def test_returns_list_of_dicts():
 def test_single_paragraph_emits_insert_text():
     requests = markdown_to_docs_requests("Hello world")
     inserts = [r for r in requests if "insertText" in r]
-    assert len(inserts) == 1
+    # Two inserts - the paragraph text plus a blank spacer paragraph
+    assert len(inserts) == 2
     assert inserts[0]["insertText"]["text"] == "Hello world\n"
     assert inserts[0]["insertText"]["location"]["index"] == 1
+    # Spacer paragraph follows immediately after the paragraph text
+    assert inserts[1]["insertText"]["text"] == "\n"
+    assert inserts[1]["insertText"]["location"]["index"] == 1 + len("Hello world\n")
 
 
 def test_two_paragraphs_emit_two_inserts_with_correct_indices():
     requests = markdown_to_docs_requests("First para\n\nSecond para")
     inserts = [r for r in requests if "insertText" in r]
-    assert len(inserts) == 2
+    # Four inserts - each top-level paragraph is followed by a blank spacer
+    # paragraph, so two paragraphs yields: text1, spacer1, text2, spacer2.
+    assert len(inserts) == 4
     assert inserts[0]["insertText"]["text"] == "First para\n"
     assert inserts[0]["insertText"]["location"]["index"] == 1
-    # Second paragraph starts after first's text + newline
-    assert inserts[1]["insertText"]["text"] == "Second para\n"
+    # Spacer after the first paragraph
+    assert inserts[1]["insertText"]["text"] == "\n"
     assert inserts[1]["insertText"]["location"]["index"] == 1 + len("First para\n")
+    # Second paragraph starts after first paragraph text + spacer newline
+    assert inserts[2]["insertText"]["text"] == "Second para\n"
+    assert inserts[2]["insertText"]["location"]["index"] == 1 + len("First para\n") + 1
+    # Trailing spacer after the second paragraph
+    assert inserts[3]["insertText"]["text"] == "\n"
+    assert inserts[3]["insertText"]["location"]["index"] == (
+        1 + len("First para\n") + 1 + len("Second para\n")
+    )
 
 
 def test_h1_emits_insert_and_heading_style():
     requests = markdown_to_docs_requests("# My Title")
     inserts = [r for r in requests if "insertText" in r]
     styles = [r for r in requests if "updateParagraphStyle" in r]
-    assert len(inserts) == 1
+    # Two inserts - the heading text plus a blank spacer paragraph
+    assert len(inserts) == 2
     assert inserts[0]["insertText"]["text"] == "My Title\n"
+    assert inserts[1]["insertText"]["text"] == "\n"
+    assert inserts[1]["insertText"]["location"]["index"] == 1 + len("My Title\n")
     assert len(styles) == 1
     assert styles[0]["updateParagraphStyle"]["paragraphStyle"]["namedStyleType"] == "HEADING_1"
-    # Range should cover the heading text
+    # Range should cover the heading text (not the spacer)
     rng = styles[0]["updateParagraphStyle"]["range"]
     assert rng["startIndex"] == 1
     assert rng["endIndex"] == 1 + len("My Title\n")
@@ -68,8 +85,10 @@ def test_bold_span_emits_update_text_style():
     requests = markdown_to_docs_requests("This is **bold** text.")
     inserts = [r for r in requests if "insertText" in r]
     styles = [r for r in requests if "updateTextStyle" in r]
-    assert len(inserts) == 1
+    # Two inserts - the paragraph text plus a blank spacer paragraph
+    assert len(inserts) == 2
     assert inserts[0]["insertText"]["text"] == "This is bold text.\n"
+    assert inserts[1]["insertText"]["text"] == "\n"
     assert len(styles) == 1
     ts = styles[0]["updateTextStyle"]
     assert ts["textStyle"]["bold"] is True
@@ -120,13 +139,20 @@ def test_unordered_list_emits_bullets():
     requests = markdown_to_docs_requests(md)
     inserts = [r for r in requests if "insertText" in r]
     bullets = [r for r in requests if "createParagraphBullets" in r]
-    assert len(inserts) == 3
+    # Four inserts - three list item paragraphs plus a single trailing spacer
+    # emitted after the whole list. List items themselves remain tight.
+    assert len(inserts) == 4
     assert inserts[0]["insertText"]["text"] == "Item one\n"
     assert inserts[1]["insertText"]["text"] == "Item two\n"
+    assert inserts[2]["insertText"]["text"] == "Item three\n"
+    assert inserts[3]["insertText"]["text"] == "\n"
     # One bullet creation request covering all three items
     assert len(bullets) == 1
     preset = bullets[0]["createParagraphBullets"]["bulletPreset"]
     assert preset == "BULLET_DISC_CIRCLE_SQUARE"
+    # Bullet range must not include the trailing spacer paragraph
+    rng = bullets[0]["createParagraphBullets"]["range"]
+    assert rng["endIndex"] == 1 + len("Item one\n") + len("Item two\n") + len("Item three\n")
 
 
 def test_ordered_list_emits_numbered_preset():
@@ -143,8 +169,10 @@ def test_fenced_code_block_emits_monospace_style():
     requests = markdown_to_docs_requests(md)
     inserts = [r for r in requests if "insertText" in r]
     styles = [r for r in requests if "updateTextStyle" in r]
-    assert len(inserts) == 1
+    # Two inserts - the fenced block content plus the trailing spacer paragraph
+    assert len(inserts) == 2
     assert inserts[0]["insertText"]["text"] == "def foo():\n    return 42\n\n"
+    assert inserts[1]["insertText"]["text"] == "\n"
     assert len(styles) >= 1
     ts = styles[0]["updateTextStyle"]["textStyle"]
     assert ts.get("weightedFontFamily", {}).get("fontFamily") in (
@@ -226,3 +254,47 @@ def test_real_blog_article_indices_are_monotonic():
     inserts = [r for r in requests if "insertText" in r]
     indices = [r["insertText"]["location"]["index"] for r in inserts]
     assert indices == sorted(indices), "insertText indices must be monotonic non-decreasing"
+
+
+def test_paragraphs_separated_by_blank_paragraph():
+    """Top-level paragraphs have a blank paragraph between them for visual spacing."""
+    requests = markdown_to_docs_requests("Para1\n\nPara2")
+    inserts = [r for r in requests if "insertText" in r]
+    texts = [r["insertText"]["text"] for r in inserts]
+    # Expect "Para1\n", "\n" (spacer), "Para2\n", "\n" (trailing spacer)
+    assert "Para1\n" in texts
+    assert "Para2\n" in texts
+    para1_idx = texts.index("Para1\n")
+    para2_idx = texts.index("Para2\n")
+    assert para2_idx > para1_idx + 1, "Blank spacer should exist between paragraphs"
+    # And the spacer is a bare "\n"
+    spacer_text = texts[para1_idx + 1]
+    assert spacer_text == "\n"
+
+
+def test_list_items_stay_tight_spacer_only_after_list():
+    """List items should remain tightly stacked; spacer emits only after the whole list."""
+    requests = markdown_to_docs_requests("- One\n- Two\n- Three")
+    inserts = [r for r in requests if "insertText" in r]
+    texts = [r["insertText"]["text"] for r in inserts]
+    # Three list-item paragraphs followed by exactly one spacer "\n"
+    assert texts == ["One\n", "Two\n", "Three\n", "\n"]
+
+
+def test_blockquote_internal_paragraphs_stay_tight():
+    """Blockquote internal paragraphs should remain tight; spacer emits only after the blockquote."""
+    requests = markdown_to_docs_requests("> Line one\n>\n> Line two")
+    inserts = [r for r in requests if "insertText" in r]
+    texts = [r["insertText"]["text"] for r in inserts]
+    # Two blockquote paragraphs followed by exactly one trailing spacer "\n".
+    # No spacer between the two blockquote paragraphs.
+    assert texts == ["Line one\n", "Line two\n", "\n"]
+
+
+def test_paragraph_between_blocks_has_spacers_around_it():
+    """Heading then paragraph - spacer after heading AND after paragraph."""
+    requests = markdown_to_docs_requests("# Title\n\nBody text")
+    inserts = [r for r in requests if "insertText" in r]
+    texts = [r["insertText"]["text"] for r in inserts]
+    # Heading, spacer, paragraph, spacer
+    assert texts == ["Title\n", "\n", "Body text\n", "\n"]

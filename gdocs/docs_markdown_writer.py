@@ -64,6 +64,9 @@ def _emit_requests(tokens, requests, tab_id, start_index):
             cursor[0] += len(text)
             requests.append(_build_heading_style(range_start, cursor[0], level, tab_id))
             requests.extend(inline_styles)
+            # Blank spacer paragraph between top-level blocks for visual spacing
+            requests.append(_build_insert_text(cursor[0], "\n", tab_id))
+            cursor[0] += 1
             i += 3
             continue
 
@@ -114,6 +117,9 @@ def _emit_requests(tokens, requests, tab_id, start_index):
                     "bulletPreset": preset,
                 }
             })
+            # Blank spacer paragraph between top-level blocks for visual spacing
+            requests.append(_build_insert_text(cursor[0], "\n", tab_id))
+            cursor[0] += 1
             i = j + 1
             continue
 
@@ -134,6 +140,9 @@ def _emit_requests(tokens, requests, tab_id, start_index):
                     tab_id,
                 )
             )
+            # Blank spacer paragraph between top-level blocks for visual spacing
+            requests.append(_build_insert_text(cursor[0], "\n", tab_id))
+            cursor[0] += 1
             i += 1
             continue
 
@@ -179,6 +188,9 @@ def _emit_requests(tokens, requests, tab_id, start_index):
                     "fields": "indentStart",
                 }
             })
+            # Blank spacer paragraph between top-level blocks for visual spacing
+            requests.append(_build_insert_text(cursor[0], "\n", tab_id))
+            cursor[0] += 1
             i = j + 1
             continue
 
@@ -199,6 +211,11 @@ def _emit_requests(tokens, requests, tab_id, start_index):
             requests.append(_build_insert_text(cursor[0], text, tab_id))
             cursor[0] += len(text)
             requests.extend(inline_styles)
+            # Blank spacer paragraph between top-level blocks for visual spacing.
+            # Only top-level paragraphs receive spacers - list-item paragraphs
+            # and blockquote paragraphs dispatch inside their own branches.
+            requests.append(_build_insert_text(cursor[0], "\n", tab_id))
+            cursor[0] += 1
             i += 3  # skip paragraph_open, inline, paragraph_close
             continue
 
