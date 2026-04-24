@@ -2368,8 +2368,13 @@ async def insert_doc_tab(
     tab_id = None
     if "replies" in result and result["replies"]:
         reply = result["replies"][0]
-        if "createDocumentTab" in reply:
-            tab_id = reply["createDocumentTab"].get("tabProperties", {}).get("tabId")
+        # Google's Docs API returns the result under "addDocumentTab" matching
+        # the request field name. Accept "createDocumentTab" too in case the API
+        # surfaces that key in some legacy or future branch.
+        for key in ("addDocumentTab", "createDocumentTab"):
+            if key in reply:
+                tab_id = reply[key].get("tabProperties", {}).get("tabId")
+                break
 
     link = f"https://docs.google.com/document/d/{document_id}/edit"
     msg = f"Inserted tab '{title}' at index {index} in document {document_id}."
