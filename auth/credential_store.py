@@ -276,8 +276,9 @@ class GCSCredentialStore(CredentialStore):
       Every object inherits the key; no per-request configuration needed.
 
     To guard against accidentally deploying against a bucket without CMEK,
-    set ``WORKSPACE_MCP_GCS_REQUIRE_CMEK=true``. The store will fail at
-    startup if the bucket has no default KMS key configured.
+    set ``WORKSPACE_MCP_GCS_REQUIRE_CMEK=true`` and call ``verify_cmek()``
+    during synchronous startup. Constructor initialization deliberately avoids
+    fetching bucket metadata so async callers do not block the event loop.
 
     This backend does not support ``list_users()`` — it is designed for
     multi-user OAuth 2.1 mode where users are looked up by email.
@@ -315,12 +316,10 @@ class GCSCredentialStore(CredentialStore):
             require_cmek = _parse_bool_env(
                 os.getenv("WORKSPACE_MCP_GCS_REQUIRE_CMEK", "")
             )
+        self.require_cmek = require_cmek
 
         self._client = storage.Client()
         self._bucket = self._client.bucket(bucket_name)
-
-        if require_cmek:
-            self._verify_cmek()
 
         logger.info(
             f"GCSCredentialStore initialized with bucket={bucket_name}, "
@@ -346,6 +345,12 @@ class GCSCredentialStore(CredentialStore):
             f"GCSCredentialStore: verified CMEK on bucket "
             f"{self.bucket_name!r} (key={self._bucket.default_kms_key_name})"
         )
+
+    def verify_cmek(self) -> None:
+        """Synchronously verify bucket CMEK when the backend is configured to require it."""
+        if not self.require_cmek:
+            return
+        self._verify_cmek()
 
     def _blob_name(self, user_email: str) -> str:
         """Construct the object key for a user, URL-encoding to prevent collisions."""
@@ -515,7 +520,7 @@ def get_credential_store() -> CredentialStore:
         if backend == "gcs":
             # GCS backend does not support list_users(), which is required for
             # single-user mode. Reject unless OAuth 2.1 is enabled.
-            oauth21_enabled = os.getenv("MCP_ENABLE_OAUTH21", "false").lower() == "true"
+            oauth21_enabled = _parse_bool_env(os.getenv("MCP_ENABLE_OAUTH21", "false"))
             if not oauth21_enabled:
                 raise ValueError(
                     "GCSCredentialStore requires MCP_ENABLE_OAUTH21=true. "

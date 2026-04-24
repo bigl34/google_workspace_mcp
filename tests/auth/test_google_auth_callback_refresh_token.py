@@ -54,7 +54,8 @@ def _make_credentials(refresh_token):
     )
 
 
-def test_callback_preserves_refresh_token_from_credential_store(monkeypatch):
+@pytest.mark.asyncio
+async def test_callback_preserves_refresh_token_from_credential_store(monkeypatch):
     callback_credentials = _make_credentials(refresh_token=None)
     oauth_store = _DummyOAuthStore(session_credentials=None)
     credential_store = _DummyCredentialStore(
@@ -80,7 +81,7 @@ def test_callback_preserves_refresh_token_from_credential_store(monkeypatch):
     )
     monkeypatch.setattr("auth.google_auth.is_stateless_mode", lambda: False)
 
-    _email, credentials = handle_auth_callback(
+    _email, credentials = await handle_auth_callback(
         scopes=["scope.a"],
         authorization_response="http://localhost/callback?state=abc123&code=code123",
         redirect_uri="http://localhost/callback",
@@ -92,7 +93,10 @@ def test_callback_preserves_refresh_token_from_credential_store(monkeypatch):
     assert oauth_store.stored_refresh_token == "file-refresh-token"
 
 
-def test_callback_prefers_session_refresh_token_over_credential_store(monkeypatch):
+@pytest.mark.asyncio
+async def test_callback_prefers_session_refresh_token_over_credential_store(
+    monkeypatch,
+):
     callback_credentials = _make_credentials(refresh_token=None)
     oauth_store = _DummyOAuthStore(
         session_credentials=_make_credentials(refresh_token="session-refresh-token")
@@ -120,7 +124,7 @@ def test_callback_prefers_session_refresh_token_over_credential_store(monkeypatc
     )
     monkeypatch.setattr("auth.google_auth.is_stateless_mode", lambda: False)
 
-    _email, credentials = handle_auth_callback(
+    _email, credentials = await handle_auth_callback(
         scopes=["scope.a"],
         authorization_response="http://localhost/callback?state=abc123&code=code123",
         redirect_uri="http://localhost/callback",
@@ -132,7 +136,8 @@ def test_callback_prefers_session_refresh_token_over_credential_store(monkeypatc
     assert oauth_store.stored_refresh_token == "session-refresh-token"
 
 
-def test_callback_raises_when_google_rejects_pkce_verifier(monkeypatch):
+@pytest.mark.asyncio
+async def test_callback_raises_when_google_rejects_pkce_verifier(monkeypatch):
     """Test that PKCE verifier rejection raises exception with clear error message.
 
     OAuth authorization codes are single-use, so retry is not possible.
@@ -159,7 +164,7 @@ def test_callback_raises_when_google_rejects_pkce_verifier(monkeypatch):
 
     # Verify the exception is raised
     with pytest.raises(Exception, match="code_verifier or verifier is not needed"):
-        handle_auth_callback(
+        await handle_auth_callback(
             scopes=["scope.a"],
             authorization_response="http://localhost/callback?state=abc123&code=code123",
             redirect_uri="http://localhost/callback",

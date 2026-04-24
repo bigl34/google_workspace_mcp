@@ -358,7 +358,7 @@ def _is_pkce_verifier_not_needed_error(error: Exception) -> bool:
     )
 
 
-def _determine_oauth_prompt(
+async def _determine_oauth_prompt(
     user_google_email: Optional[str],
     required_scopes: List[str],
     session_id: Optional[str] = None,
@@ -520,7 +520,7 @@ async def start_auth_flow(
                 f"Could not retrieve FastMCP session ID for state binding: {e}"
             )
 
-        prompt_type = _determine_oauth_prompt(
+        prompt_type = await _determine_oauth_prompt(
             user_google_email=user_google_email,
             required_scopes=current_scopes,
             session_id=session_id,

@@ -168,36 +168,42 @@ class TestCMEKVerification:
         mock_storage_client.default_kms_key_name = (
             "projects/p/locations/l/keyRings/r/cryptoKeys/k"
         )
-        # Should not raise
-        GCSCredentialStore(bucket_name="b", require_cmek=True)
+        store = GCSCredentialStore(bucket_name="b", require_cmek=True)
+        mock_storage_client.reload.assert_not_called()
+        store.verify_cmek()
         mock_storage_client.reload.assert_called_once()
 
     def test_require_cmek_raises_when_key_is_missing(self, mock_storage_client):
         mock_storage_client.default_kms_key_name = None
+        store = GCSCredentialStore(bucket_name="b", require_cmek=True)
         with pytest.raises(ValueError, match="no default KMS key"):
-            GCSCredentialStore(bucket_name="b", require_cmek=True)
+            store.verify_cmek()
 
     def test_require_cmek_raises_when_key_is_empty_string(self, mock_storage_client):
         mock_storage_client.default_kms_key_name = ""
+        store = GCSCredentialStore(bucket_name="b", require_cmek=True)
         with pytest.raises(ValueError, match="no default KMS key"):
-            GCSCredentialStore(bucket_name="b", require_cmek=True)
+            store.verify_cmek()
 
     def test_no_flag_does_not_call_reload(self, mock_storage_client):
         # When require_cmek is False, we should not pay for bucket metadata fetch
-        GCSCredentialStore(bucket_name="b", require_cmek=False)
+        store = GCSCredentialStore(bucket_name="b", require_cmek=False)
+        store.verify_cmek()
         mock_storage_client.reload.assert_not_called()
 
     def test_env_var_truthy_enables_cmek_check(self, mock_storage_client, monkeypatch):
         monkeypatch.setenv("WORKSPACE_MCP_GCS_REQUIRE_CMEK", "true")
         mock_storage_client.default_kms_key_name = None
+        store = GCSCredentialStore(bucket_name="b")
         with pytest.raises(ValueError, match="no default KMS key"):
-            GCSCredentialStore(bucket_name="b")
+            store.verify_cmek()
 
     def test_env_var_falsy_skips_cmek_check(self, mock_storage_client, monkeypatch):
         monkeypatch.setenv("WORKSPACE_MCP_GCS_REQUIRE_CMEK", "false")
         mock_storage_client.default_kms_key_name = None
-        # Should not raise
-        GCSCredentialStore(bucket_name="b")
+        store = GCSCredentialStore(bucket_name="b")
+        store.verify_cmek()
+        mock_storage_client.reload.assert_not_called()
 
 
 class TestConfiguration:
@@ -280,6 +286,15 @@ class TestBackendSelection:
         monkeypatch.setenv("WORKSPACE_MCP_GCS_BUCKET", "test-bucket")
         monkeypatch.delenv("MCP_ENABLE_OAUTH21", raising=False)
         with pytest.raises(ValueError, match="MCP_ENABLE_OAUTH21=true"):
+            get_credential_store()
+
+    def test_gcs_backend_rejects_invalid_oauth21_flag(
+        self, monkeypatch, mock_storage_client
+    ):
+        monkeypatch.setenv("WORKSPACE_MCP_CREDENTIAL_STORE_BACKEND", "gcs")
+        monkeypatch.setenv("WORKSPACE_MCP_GCS_BUCKET", "test-bucket")
+        monkeypatch.setenv("MCP_ENABLE_OAUTH21", "treu")
+        with pytest.raises(ValueError, match="Invalid boolean env var"):
             get_credential_store()
 
     def test_unknown_backend_raises(self, monkeypatch, tmp_path):

@@ -18,6 +18,7 @@ if sys.platform == "darwin":
 
 
 def _load_startup_dependencies():
+    from auth.credential_store import GCSCredentialStore, get_credential_store
     from auth.oauth_config import (
         get_oauth_config,
         reload_oauth_config,
@@ -35,6 +36,8 @@ def _load_startup_dependencies():
     )
 
     return (
+        GCSCredentialStore,
+        get_credential_store,
         get_oauth_config,
         reload_oauth_config,
         is_stateless_mode,
@@ -53,6 +56,8 @@ def _load_startup_dependencies():
 
 
 (
+    GCSCredentialStore,
+    get_credential_store,
     get_oauth_config,
     reload_oauth_config,
     is_stateless_mode,
@@ -568,6 +573,22 @@ def main():
         )
         safe_print(f"🔍 Skipping credentials directory check ({skip_reason})")
         safe_print("")
+
+    backend = (
+        os.getenv("WORKSPACE_MCP_CREDENTIAL_STORE_BACKEND", "").strip().lower()
+        or "local_directory"
+    )
+    if backend == "gcs":
+        try:
+            safe_print("🔍 Verifying GCS credential store configuration...")
+            credential_store = get_credential_store()
+            if isinstance(credential_store, GCSCredentialStore):
+                credential_store.verify_cmek()
+            safe_print("✅ GCS credential store configuration verified")
+            safe_print("")
+        except Exception as e:
+            safe_print(f"❌ GCS credential store verification failed: {e}")
+            sys.exit(1)
 
     try:
         # Set transport mode for OAuth callback handling
