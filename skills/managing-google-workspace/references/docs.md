@@ -219,9 +219,10 @@ Create, rename, delete, or populate tabs from markdown. Uses `action` to select 
 **Supported markdown** (populate_from_markdown action)
 
 Headings (H1-H6), paragraphs, bold/italic/code inline, links, ordered
-and unordered lists, fenced code blocks, blockquotes, horizontal rules.
+and unordered lists, fenced code blocks, blockquotes, horizontal rules,
+and images rendered as linked alt text.
 
-Not yet supported: images, tables (plain-text fallback), footnotes, smart chips, equations.
+Not yet supported: embedded image insertion, tables (plain-text fallback), footnotes, smart chips, equations.
 
 **Example**
 

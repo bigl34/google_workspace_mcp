@@ -109,6 +109,48 @@ async def test_create_tab_omits_tab_id_when_reply_is_empty():
     assert "doc-abc" in result["message"]
 
 
+@pytest.mark.asyncio
+async def test_populate_tab_accepts_empty_markdown_to_clear_existing_content():
+    """Empty markdown is valid when replace_existing is used to clear a tab."""
+    service = Mock()
+    docs = service.documents.return_value
+    docs.get.return_value.execute.return_value = {
+        "tabs": [
+            {
+                "tabProperties": {"tabId": "t.clear"},
+                "documentTab": {
+                    "body": {
+                        "content": [
+                            {"endIndex": 1},
+                            {"endIndex": 12},
+                        ]
+                    }
+                },
+            }
+        ]
+    }
+    docs.batchUpdate.return_value.execute.return_value = {"replies": []}
+
+    result = await _unwrap(docs_tools.manage_doc_tab)(
+        service=service,
+        user_google_email="test@example.com",
+        document_id="doc-abc",
+        action="populate_from_markdown",
+        tab_id="t.clear",
+        markdown_text="",
+    )
+
+    request_body = docs.batchUpdate.call_args.kwargs["body"]
+    assert result["success"] is True
+    assert request_body["requests"] == [
+        {
+            "deleteContentRange": {
+                "range": {"startIndex": 1, "endIndex": 11, "tabId": "t.clear"}
+            }
+        }
+    ]
+
+
 class TestBatchOperationManagerExtractCreatedTabs:
     """Companion tests for BatchOperationManager._extract_created_tabs, which
     had the identical bug at gdocs/managers/batch_operation_manager.py line 883.

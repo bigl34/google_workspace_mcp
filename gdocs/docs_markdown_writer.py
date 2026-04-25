@@ -6,9 +6,9 @@ markdown into a document or a specific tab within a document.
 
 Supported constructs - headings H1-H6, paragraphs with inline bold/italic/
 code/links, ordered and unordered lists, fenced code blocks, blockquotes,
-and horizontal rules. GFM-only features (tables, strikethrough, task lists,
-autolinks) are not enabled; extend the parser config below if they become
-needed.
+horizontal rules, and image alt text linked to the image URL. GFM-only
+features (tables, strikethrough, task lists, autolinks) are not enabled;
+extend the parser config below if they become needed.
 
 Primary entry point - markdown_to_docs_requests(markdown_text, tab_id=None).
 """
@@ -117,12 +117,14 @@ def _emit_requests(tokens, requests, tab_id, start_index):
             rng = {"startIndex": list_start, "endIndex": list_end}
             if tab_id:
                 rng["tabId"] = tab_id
-            requests.append({
-                "createParagraphBullets": {
-                    "range": rng,
-                    "bulletPreset": preset,
+            requests.append(
+                {
+                    "createParagraphBullets": {
+                        "range": rng,
+                        "bulletPreset": preset,
+                    }
                 }
-            })
+            )
             # Blank spacer paragraph between top-level blocks for visual spacing
             requests.append(_build_insert_text(cursor[0], "\n", tab_id))
             cursor[0] += 1
@@ -141,14 +143,13 @@ def _emit_requests(tokens, requests, tab_id, start_index):
             cursor[0] += len(text)
             # Style the code characters but not the paragraph-ending newline.
             code_end = cursor[0] - 1
-            requests.append(
-                _build_text_style(
-                    start_idx,
-                    code_end,
-                    {"weightedFontFamily": {"fontFamily": "Courier New", "weight": 400}},
-                    "weightedFontFamily",
-                    tab_id,
-                )
+            _append_text_style(
+                requests,
+                start_idx,
+                code_end,
+                {"weightedFontFamily": {"fontFamily": "Courier New", "weight": 400}},
+                "weightedFontFamily",
+                tab_id,
             )
             # Blank spacer paragraph between top-level blocks for visual spacing
             requests.append(_build_insert_text(cursor[0], "\n", tab_id))
@@ -172,7 +173,11 @@ def _emit_requests(tokens, requests, tab_id, start_index):
             # Process paragraphs inside the blockquote
             k = i + 1
             while k < j:
-                if tokens[k].type == "paragraph_open" and k + 1 < j and tokens[k + 1].type == "inline":
+                if (
+                    tokens[k].type == "paragraph_open"
+                    and k + 1 < j
+                    and tokens[k + 1].type == "inline"
+                ):
                     inline_tok = tokens[k + 1]
                     text, inline_styles = _render_inline_with_styles(
                         inline_tok.children or [], cursor[0], tab_id
@@ -189,15 +194,17 @@ def _emit_requests(tokens, requests, tab_id, start_index):
             rng = {"startIndex": quote_start, "endIndex": quote_end}
             if tab_id:
                 rng["tabId"] = tab_id
-            requests.append({
-                "updateParagraphStyle": {
-                    "range": rng,
-                    "paragraphStyle": {
-                        "indentStart": {"magnitude": 36, "unit": "PT"},
-                    },
-                    "fields": "indentStart",
+            requests.append(
+                {
+                    "updateParagraphStyle": {
+                        "range": rng,
+                        "paragraphStyle": {
+                            "indentStart": {"magnitude": 36, "unit": "PT"},
+                        },
+                        "fields": "indentStart",
+                    }
                 }
-            })
+            )
             # Blank spacer paragraph between top-level blocks for visual spacing
             requests.append(_build_insert_text(cursor[0], "\n", tab_id))
             cursor[0] += 1
@@ -270,14 +277,13 @@ def _render_inline_with_styles(
             start_local = local_pos
             text_parts.append(tok.content)
             local_pos += len(tok.content)
-            style_requests.append(
-                _build_text_style(
-                    base_index + start_local,
-                    base_index + local_pos,
-                    {"weightedFontFamily": {"fontFamily": "Courier New", "weight": 400}},
-                    "weightedFontFamily",
-                    tab_id,
-                )
+            _append_text_style(
+                style_requests,
+                base_index + start_local,
+                base_index + local_pos,
+                {"weightedFontFamily": {"fontFamily": "Courier New", "weight": 400}},
+                "weightedFontFamily",
+                tab_id,
             )
         elif tok.type in ("strong_open", "em_open"):
             stack.append((tok.type, local_pos))
@@ -287,41 +293,77 @@ def _render_inline_with_styles(
                 if stack[idx][0] == opener_type:
                     _, start_local = stack.pop(idx)
                     style_key = "bold" if opener_type == "strong_open" else "italic"
-                    style_requests.append(
-                        _build_text_style(
-                            base_index + start_local,
-                            base_index + local_pos,
-                            {style_key: True},
-                            style_key,
-                            tab_id,
-                        )
+                    _append_text_style(
+                        style_requests,
+                        base_index + start_local,
+                        base_index + local_pos,
+                        {style_key: True},
+                        style_key,
+                        tab_id,
                     )
                     break
         elif tok.type == "link_open":
             # tok.attrs may be a dict (newer markdown-it-py) or list of [key, val]
             # pairs (older). Support both.
-            attrs = tok.attrs
-            if isinstance(attrs, dict):
-                href = attrs.get("href")
-            else:
-                href = next((a[1] for a in attrs if a[0] == "href"), None)
+            href = _token_attr(tok, "href")
             stack.append(("link_open", local_pos, href))
         elif tok.type == "link_close":
             for idx in range(len(stack) - 1, -1, -1):
                 if stack[idx][0] == "link_open":
                     _, start_local, href = stack.pop(idx)
-                    style_requests.append(
-                        _build_text_style(
+                    if href:
+                        _append_text_style(
+                            style_requests,
                             base_index + start_local,
                             base_index + local_pos,
                             {"link": {"url": href}},
                             "link",
                             tab_id,
                         )
-                    )
                     break
+        elif tok.type == "image":
+            src = _token_attr(tok, "src")
+            label = tok.content or src or ""
+            if label:
+                start_local = local_pos
+                text_parts.append(label)
+                local_pos += len(label)
+                if src:
+                    _append_text_style(
+                        style_requests,
+                        base_index + start_local,
+                        base_index + local_pos,
+                        {"link": {"url": src}},
+                        "link",
+                        tab_id,
+                    )
+        elif tok.type in ("html_inline", "html_block"):
+            text_parts.append(tok.content)
+            local_pos += len(tok.content)
 
     return "".join(text_parts), style_requests
+
+
+def _append_text_style(
+    requests: list[dict],
+    start: int,
+    end: int,
+    style: dict,
+    fields: str,
+    tab_id: Optional[str],
+) -> None:
+    """Append an updateTextStyle request when Google Docs will accept the range."""
+    if end <= start:
+        return
+    requests.append(_build_text_style(start, end, style, fields, tab_id))
+
+
+def _token_attr(token, name: str) -> Optional[str]:
+    """Return a markdown-it token attr across supported markdown-it-py versions."""
+    attrs = token.attrs
+    if isinstance(attrs, dict):
+        return attrs.get(name)
+    return next((attr[1] for attr in attrs or [] if attr[0] == name), None)
 
 
 def _build_text_style(

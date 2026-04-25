@@ -2460,7 +2460,7 @@ async def manage_doc_tab(
         raise UserInputError(
             "'tab_id' is required for the 'populate_from_markdown' action."
         )
-    if not markdown_text:
+    if markdown_text is None:
         raise UserInputError(
             "'markdown_text' is required for the 'populate_from_markdown' action."
         )

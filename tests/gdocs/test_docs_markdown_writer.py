@@ -2,8 +2,6 @@
 
 import pathlib
 
-import pytest
-
 from gdocs.docs_markdown_writer import markdown_to_docs_requests
 
 FIXTURE_DIR = pathlib.Path(__file__).parent / "fixtures"
@@ -64,7 +62,10 @@ def test_h1_emits_insert_and_heading_style():
     assert inserts[1]["insertText"]["text"] == "\n"
     assert inserts[1]["insertText"]["location"]["index"] == 1 + len("My Title\n")
     assert len(styles) == 1
-    assert styles[0]["updateParagraphStyle"]["paragraphStyle"]["namedStyleType"] == "HEADING_1"
+    assert (
+        styles[0]["updateParagraphStyle"]["paragraphStyle"]["namedStyleType"]
+        == "HEADING_1"
+    )
     # Range should cover the heading text (not the spacer)
     rng = styles[0]["updateParagraphStyle"]["range"]
     assert rng["startIndex"] == 1
@@ -78,7 +79,10 @@ def test_h2_h3_h4_h5_h6_all_emit_correct_named_style():
         requests = markdown_to_docs_requests(md)
         styles = [r for r in requests if "updateParagraphStyle" in r]
         assert len(styles) == 1
-        assert styles[0]["updateParagraphStyle"]["paragraphStyle"]["namedStyleType"] == f"HEADING_{level}"
+        assert (
+            styles[0]["updateParagraphStyle"]["paragraphStyle"]["namedStyleType"]
+            == f"HEADING_{level}"
+        )
 
 
 def test_bold_span_emits_update_text_style():
@@ -116,17 +120,22 @@ def test_link_emits_link_style():
     requests = markdown_to_docs_requests("See [docs](https://example.com) here.")
     styles = [r for r in requests if "updateTextStyle" in r]
     assert len(styles) == 1
-    assert styles[0]["updateTextStyle"]["textStyle"]["link"]["url"] == "https://example.com"
+    assert (
+        styles[0]["updateTextStyle"]["textStyle"]["link"]["url"]
+        == "https://example.com"
+    )
 
 
 def test_combined_bold_and_italic_spans():
     requests = markdown_to_docs_requests("A **bold** and *italic* mix.")
     styles = [r for r in requests if "updateTextStyle" in r]
     assert len(styles) == 2
-    style_types = sorted([
-        "bold" if s["updateTextStyle"]["textStyle"].get("bold") else "italic"
-        for s in styles
-    ])
+    style_types = sorted(
+        [
+            "bold" if s["updateTextStyle"]["textStyle"].get("bold") else "italic"
+            for s in styles
+        ]
+    )
     assert style_types == ["bold", "italic"]
 
 
@@ -148,7 +157,9 @@ def test_unordered_list_emits_bullets():
     assert preset == "BULLET_DISC_CIRCLE_SQUARE"
     # Bullet range must not include the trailing spacer paragraph
     rng = bullets[0]["createParagraphBullets"]["range"]
-    assert rng["endIndex"] == 1 + len("Item one\n") + len("Item two\n") + len("Item three\n")
+    assert rng["endIndex"] == 1 + len("Item one\n") + len("Item two\n") + len(
+        "Item three\n"
+    )
 
 
 def test_ordered_list_emits_numbered_preset():
@@ -176,13 +187,38 @@ def test_fenced_code_block_emits_monospace_style():
     assert ts.get("weightedFontFamily", {}).get("fontFamily") == "Courier New"
 
 
+def test_empty_fenced_code_block_omits_zero_length_style_range():
+    requests = markdown_to_docs_requests("```\n```")
+    assert not any(
+        r["updateTextStyle"]["range"]["startIndex"]
+        >= r["updateTextStyle"]["range"]["endIndex"]
+        for r in requests
+        if "updateTextStyle" in r
+    )
+
+
+def test_image_markdown_preserves_alt_text_as_linked_text():
+    requests = markdown_to_docs_requests("![Architecture](https://example.com/a.png)")
+    inserts = [r for r in requests if "insertText" in r]
+    styles = [r for r in requests if "updateTextStyle" in r]
+
+    assert inserts[0]["insertText"]["text"] == "Architecture\n"
+    assert styles[0]["updateTextStyle"]["textStyle"]["link"]["url"] == (
+        "https://example.com/a.png"
+    )
+
+
 def test_blockquote_emits_indent():
     requests = markdown_to_docs_requests("> This is quoted.\n> Continued.")
     styles = [r for r in requests if "updateParagraphStyle" in r]
     # At least one paragraph style with a positive left indent
     indented = [
-        s for s in styles
-        if s["updateParagraphStyle"]["paragraphStyle"].get("indentStart", {}).get("magnitude", 0) > 0
+        s
+        for s in styles
+        if s["updateParagraphStyle"]["paragraphStyle"]
+        .get("indentStart", {})
+        .get("magnitude", 0)
+        > 0
     ]
     assert len(indented) >= 1
 
@@ -202,17 +238,21 @@ def test_tab_id_threaded_through_all_insert_text_requests():
     for r in requests:
         # Every request that has a location or range should carry tabId
         if "insertText" in r:
-            assert r["insertText"]["location"].get("tabId") == "t.0.1", \
+            assert r["insertText"]["location"].get("tabId") == "t.0.1", (
                 f"Missing tabId in insertText: {r}"
+            )
         if "updateTextStyle" in r:
-            assert r["updateTextStyle"]["range"].get("tabId") == "t.0.1", \
+            assert r["updateTextStyle"]["range"].get("tabId") == "t.0.1", (
                 f"Missing tabId in updateTextStyle: {r}"
+            )
         if "updateParagraphStyle" in r:
-            assert r["updateParagraphStyle"]["range"].get("tabId") == "t.0.1", \
+            assert r["updateParagraphStyle"]["range"].get("tabId") == "t.0.1", (
                 f"Missing tabId in updateParagraphStyle: {r}"
+            )
         if "createParagraphBullets" in r:
-            assert r["createParagraphBullets"]["range"].get("tabId") == "t.0.1", \
+            assert r["createParagraphBullets"]["range"].get("tabId") == "t.0.1", (
                 f"Missing tabId in createParagraphBullets: {r}"
+            )
 
 
 def test_no_tab_id_omits_tab_id_field_entirely():
@@ -233,12 +273,17 @@ def test_real_blog_article_produces_reasonable_request_list():
     # Smoke test - we expect many insertText and several updateParagraphStyle
     inserts = [r for r in requests if "insertText" in r]
     heading_styles = [
-        r for r in requests
+        r
+        for r in requests
         if "updateParagraphStyle" in r
-        and r["updateParagraphStyle"]["paragraphStyle"].get("namedStyleType", "").startswith("HEADING")
+        and r["updateParagraphStyle"]["paragraphStyle"]
+        .get("namedStyleType", "")
+        .startswith("HEADING")
     ]
     assert len(inserts) >= 10, f"Expected many inserts, got {len(inserts)}"
-    assert len(heading_styles) >= 3, f"Expected several headings, got {len(heading_styles)}"
+    assert len(heading_styles) >= 3, (
+        f"Expected several headings, got {len(heading_styles)}"
+    )
 
 
 def test_real_blog_article_indices_are_monotonic():
@@ -247,7 +292,9 @@ def test_real_blog_article_indices_are_monotonic():
     requests = markdown_to_docs_requests(md)
     inserts = [r for r in requests if "insertText" in r]
     indices = [r["insertText"]["location"]["index"] for r in inserts]
-    assert indices == sorted(indices), "insertText indices must be monotonic non-decreasing"
+    assert indices == sorted(indices), (
+        "insertText indices must be monotonic non-decreasing"
+    )
 
 
 def test_paragraphs_separated_by_blank_paragraph():
