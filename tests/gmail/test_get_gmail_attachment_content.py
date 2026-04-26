@@ -118,7 +118,9 @@ def test_format_base64_content_block_handles_invalid_input_gracefully():
 async def test_default_call_omits_base64_content(isolated_attachment_env):
     """Without return_base64, the response should not contain the base64 block (backwards compat)."""
     payload = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-    mock_service = _build_mock_service(payload, filename="test.png", mime_type="image/png")
+    mock_service = _build_mock_service(
+        payload, filename="test.png", mime_type="image/png"
+    )
 
     result = await _unwrap(get_gmail_attachment_content)(
         service=mock_service,
@@ -136,7 +138,11 @@ async def test_default_call_omits_base64_content(isolated_attachment_env):
 @pytest.mark.parametrize(
     ("payload", "filename", "mime_type"),
     [
-        (b"\x89PNG\r\n\x1a\n" + b"\xff" * 50 + bytes(range(200)), "test.png", "image/png"),
+        (
+            b"\x89PNG\r\n\x1a\n" + b"\xff" * 50 + bytes(range(200)),
+            "test.png",
+            "image/png",
+        ),
         (b"PDF-ish\x00\x01\x02" + b"\xfe\xfd" * 128, "doc.pdf", "application/pdf"),
         (bytes(range(256)), "full-range.bin", "application/octet-stream"),
     ],
