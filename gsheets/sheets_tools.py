@@ -2064,6 +2064,207 @@ async def resize_sheet_dimensions(
     )
 
 
+@server.tool()
+@handle_http_errors("delete_sheet_rows", service_type="sheets")
+@require_google_service("sheets", "sheets_write")
+async def delete_sheet_rows(
+    service,
+    user_google_email: str,
+    spreadsheet_id: str,
+    sheet_name: str,
+    start_row: int,
+    end_row: int,
+) -> str:
+    """
+    Deletes a contiguous range of rows from a sheet. Row numbers are 1-based
+    (matching what you see in the spreadsheet UI). Both start_row and end_row
+    are inclusive.
+
+    For deleting non-contiguous rows, use resize_sheet_dimensions with the
+    delete_rows parameter instead.
+
+    Args:
+        user_google_email (str): The user's Google email address. Required.
+        spreadsheet_id (str): The ID of the spreadsheet. Required.
+        sheet_name (str): The name of the sheet. Required.
+        start_row (int): First row to delete (1-based, inclusive). Required.
+        end_row (int): Last row to delete (1-based, inclusive). Required.
+
+    Returns:
+        str: Confirmation message with the number of rows deleted.
+    """
+    logger.info(
+        f"[delete_sheet_rows] Invoked. Email: '{user_google_email}', "
+        f"Spreadsheet: {spreadsheet_id}, Sheet: {sheet_name}, "
+        f"Rows: {start_row}-{end_row}"
+    )
+
+    if start_row < 1 or end_row < start_row:
+        raise UserInputError(
+            f"Invalid row range: start_row={start_row}, end_row={end_row}. "
+            f"Rows are 1-based and end_row must be >= start_row."
+        )
+
+    spreadsheet = await asyncio.to_thread(
+        service.spreadsheets()
+        .get(
+            spreadsheetId=spreadsheet_id,
+            fields="sheets(properties(sheetId,title))",
+        )
+        .execute
+    )
+
+    sheet = _select_sheet(spreadsheet.get("sheets", []), sheet_name)
+    sheet_id = sheet["properties"]["sheetId"]
+
+    request_body = {
+        "requests": [
+            {
+                "deleteDimension": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "dimension": "ROWS",
+                        "startIndex": start_row - 1,
+                        "endIndex": end_row,
+                    }
+                }
+            }
+        ]
+    }
+
+    await asyncio.to_thread(
+        service.spreadsheets()
+        .batchUpdate(spreadsheetId=spreadsheet_id, body=request_body)
+        .execute
+    )
+
+    num_deleted = end_row - start_row + 1
+    text_output = (
+        f"Successfully deleted {num_deleted} row(s) ({start_row}-{end_row}) "
+        f"from sheet '{sheet_name}' in spreadsheet {spreadsheet_id} "
+        f"for {user_google_email}."
+    )
+
+    logger.info(
+        f"[delete_sheet_rows] Deleted {num_deleted} rows for {user_google_email}"
+    )
+    return text_output
+
+
+@server.tool()
+@handle_http_errors("move_sheet_rows", service_type="sheets")
+@require_google_service("sheets", "sheets_write")
+async def move_sheet_rows(
+    service,
+    user_google_email: str,
+    spreadsheet_id: str,
+    source_sheet: str,
+    start_row: int,
+    end_row: int,
+    destination_sheet: str,
+) -> str:
+    """
+    Moves rows from one sheet to another within the same spreadsheet. Reads the
+    row data from the source sheet, appends it to the destination sheet, then
+    deletes the original rows. Row numbers are 1-based (matching the spreadsheet UI).
+
+    Args:
+        user_google_email (str): The user's Google email address. Required.
+        spreadsheet_id (str): The ID of the spreadsheet. Required.
+        source_sheet (str): Name of the sheet to move rows from. Required.
+        start_row (int): First row to move (1-based, inclusive). Required.
+        end_row (int): Last row to move (1-based, inclusive). Required.
+        destination_sheet (str): Name of the sheet to move rows to. Required.
+
+    Returns:
+        str: Confirmation message with the number of rows moved.
+    """
+    logger.info(
+        f"[move_sheet_rows] Invoked. Email: '{user_google_email}', "
+        f"Spreadsheet: {spreadsheet_id}, "
+        f"From: {source_sheet}!{start_row}-{end_row}, To: {destination_sheet}"
+    )
+
+    if start_row < 1 or end_row < start_row:
+        raise UserInputError(
+            f"Invalid row range: start_row={start_row}, end_row={end_row}. "
+            f"Rows are 1-based and end_row must be >= start_row."
+        )
+
+    if source_sheet == destination_sheet:
+        raise UserInputError("source_sheet and destination_sheet must be different.")
+
+    source_range = f"'{source_sheet}'!{start_row}:{end_row}"
+    result = await asyncio.to_thread(
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=spreadsheet_id, range=source_range)
+        .execute
+    )
+
+    values = result.get("values", [])
+    if not values:
+        raise UserInputError(
+            f"No data found in {source_sheet} rows {start_row}-{end_row}."
+        )
+
+    dest_range = f"'{destination_sheet}'!A1"
+    await asyncio.to_thread(
+        service.spreadsheets()
+        .values()
+        .append(
+            spreadsheetId=spreadsheet_id,
+            range=dest_range,
+            valueInputOption="RAW",
+            body={"values": values},
+        )
+        .execute
+    )
+
+    spreadsheet = await asyncio.to_thread(
+        service.spreadsheets()
+        .get(
+            spreadsheetId=spreadsheet_id,
+            fields="sheets(properties(sheetId,title))",
+        )
+        .execute
+    )
+
+    sheet = _select_sheet(spreadsheet.get("sheets", []), source_sheet)
+    sheet_id = sheet["properties"]["sheetId"]
+
+    delete_body = {
+        "requests": [
+            {
+                "deleteDimension": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "dimension": "ROWS",
+                        "startIndex": start_row - 1,
+                        "endIndex": end_row,
+                    }
+                }
+            }
+        ]
+    }
+
+    await asyncio.to_thread(
+        service.spreadsheets()
+        .batchUpdate(spreadsheetId=spreadsheet_id, body=delete_body)
+        .execute
+    )
+
+    num_moved = len(values)
+    text_output = (
+        f"Successfully moved {num_moved} row(s) from '{source_sheet}' "
+        f"(rows {start_row}-{end_row}) to '{destination_sheet}' "
+        f"in spreadsheet {spreadsheet_id} for {user_google_email}."
+    )
+
+    logger.info(f"[move_sheet_rows] Moved {num_moved} rows for {user_google_email}")
+    return text_output
+
+
 # Create comment management tools for sheets
 _comment_tools = create_comment_tools("spreadsheet", "spreadsheet_id")
 
