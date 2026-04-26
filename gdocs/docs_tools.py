@@ -9,7 +9,9 @@ import asyncio
 import io
 import inspect
 import re
-from typing import List, Any, Optional
+from typing import List, Any, Literal, Optional, Union
+
+from typing_extensions import TypedDict
 
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -2339,7 +2341,10 @@ def _find_tab_end_index(doc: dict, target_tab_id: str) -> int:
         for tab in tabs:
             tab_props = tab.get("tabProperties", {})
             if tab_props.get("tabId") == target_tab_id:
-                body = tab.get("documentTab", {}).get("body", {})
+                document_tab = tab.get("documentTab")
+                if not document_tab:
+                    return 0
+                body = document_tab.get("body", {})
                 content = body.get("content", [])
                 if content:
                     return content[-1].get("endIndex", 1)
@@ -2352,6 +2357,50 @@ def _find_tab_end_index(doc: dict, target_tab_id: str) -> int:
         return 0
 
     return walk(doc.get("tabs", []))
+
+
+class CreateDocTabResponse(TypedDict):
+    action: Literal["create"]
+    success: bool
+    message: str
+    tab_id: Optional[str]
+    requests_applied: int
+    link: Optional[str]
+
+
+class DeleteDocTabResponse(TypedDict):
+    action: Literal["delete"]
+    success: bool
+    message: str
+    tab_id: Optional[str]
+    requests_applied: int
+    link: Optional[str]
+
+
+class RenameDocTabResponse(TypedDict):
+    action: Literal["rename"]
+    success: bool
+    message: str
+    tab_id: Optional[str]
+    requests_applied: int
+    link: Optional[str]
+
+
+class PopulateMarkdownTabResponse(TypedDict):
+    action: Literal["populate_from_markdown"]
+    success: bool
+    message: str
+    tab_id: Optional[str]
+    requests_applied: int
+    link: Optional[str]
+
+
+ManageDocTabResponse = Union[
+    CreateDocTabResponse,
+    DeleteDocTabResponse,
+    RenameDocTabResponse,
+    PopulateMarkdownTabResponse,
+]
 
 
 @server.tool()
@@ -2368,7 +2417,7 @@ async def manage_doc_tab(
     parent_tab_id: Optional[str] = None,
     markdown_text: Optional[str] = None,
     replace_existing: bool = True,
-) -> dict:
+) -> ManageDocTabResponse:
     """
     Manage document tabs: create, rename, delete, or populate from markdown.
 
@@ -2423,7 +2472,14 @@ async def manage_doc_tab(
             msg += f" Tab ID: {new_tab_id}."
         if parent_tab_id:
             msg += f" Nested under parent tab {parent_tab_id}."
-        return {"message": f"{msg} Link: {link}", "tab_id": new_tab_id}
+        return {
+            "action": action,
+            "success": True,
+            "message": msg,
+            "tab_id": new_tab_id,
+            "requests_applied": 1,
+            "link": link,
+        }
 
     if action == "delete":
         if not tab_id:
@@ -2436,7 +2492,12 @@ async def manage_doc_tab(
             .execute
         )
         return {
-            "message": f"Deleted tab '{tab_id}' from document {document_id}. Link: {link}"
+            "action": action,
+            "success": True,
+            "message": f"Deleted tab '{tab_id}' from document {document_id}.",
+            "tab_id": tab_id,
+            "requests_applied": 1,
+            "link": link,
         }
 
     if action == "rename":
@@ -2452,7 +2513,12 @@ async def manage_doc_tab(
             .execute
         )
         return {
-            "message": f"Renamed tab '{tab_id}' to '{title}' in document {document_id}. Link: {link}"
+            "action": action,
+            "success": True,
+            "message": f"Renamed tab '{tab_id}' to '{title}' in document {document_id}.",
+            "tab_id": tab_id,
+            "requests_applied": 1,
+            "link": link,
         }
 
     # action == "populate_from_markdown"
@@ -2467,20 +2533,18 @@ async def manage_doc_tab(
 
     all_requests: List[dict] = []
 
-    if replace_existing:
-        doc = await asyncio.to_thread(
-            service.documents()
-            .get(documentId=document_id, includeTabsContent=True)
-            .execute
-        )
-        tab_end = _find_tab_end_index(doc, tab_id)
-        if not tab_end:
-            raise UserInputError(f"'{tab_id}' not found in document")
+    doc = await asyncio.to_thread(
+        service.documents().get(documentId=document_id, includeTabsContent=True).execute
+    )
+    tab_end = _find_tab_end_index(doc, tab_id)
+    if not tab_end:
+        raise UserInputError(f"'{tab_id}' not found in document")
 
+    if replace_existing:
         # tab_end includes the segment-terminating newline that Google Docs
         # refuses to delete, so we delete up to tab_end - 1. Empty tabs
         # (tab_end <= 2) have nothing to clear.
-        if tab_end and tab_end > 2:
+        if tab_end > 2:
             all_requests.append(
                 {
                     "deleteContentRange": {
@@ -2496,7 +2560,17 @@ async def manage_doc_tab(
     all_requests.extend(markdown_to_docs_requests(markdown_text, tab_id=tab_id))
 
     if not all_requests:
-        return {"success": True, "requests_applied": 0, "tab_id": tab_id}
+        return {
+            "action": action,
+            "success": True,
+            "message": (
+                f"No changes applied to tab '{tab_id}' in document {document_id}; "
+                "markdown produced no requests."
+            ),
+            "tab_id": tab_id,
+            "requests_applied": 0,
+            "link": link,
+        }
 
     await asyncio.to_thread(
         service.documents()
@@ -2505,9 +2579,15 @@ async def manage_doc_tab(
     )
 
     return {
+        "action": action,
         "success": True,
+        "message": (
+            f"Populated tab '{tab_id}' in document {document_id} "
+            f"from {len(markdown_text)} characters of markdown."
+        ),
         "requests_applied": len(all_requests),
         "tab_id": tab_id,
+        "link": link,
     }
 
 

@@ -16,6 +16,16 @@ from gdocs import docs_tools
 from gdocs.managers.batch_operation_manager import BatchOperationManager
 
 
+COMMON_RESPONSE_KEYS = {
+    "action",
+    "success",
+    "message",
+    "tab_id",
+    "requests_applied",
+    "link",
+}
+
+
 def _unwrap(tool):
     """Unwrap the decorated tool function to the original implementation.
 
@@ -64,6 +74,10 @@ async def test_create_tab_extracts_tab_id_from_add_document_tab_reply():
 
     assert result["tab_id"] == "t.xyz123"
     assert "Tab ID: t.xyz123" in result["message"]
+    assert set(result) == COMMON_RESPONSE_KEYS
+    assert result["success"] is True
+    assert result["requests_applied"] == 1
+    assert result["link"] == "https://docs.google.com/document/d/doc-abc/edit"
 
 
 @pytest.mark.asyncio
@@ -143,6 +157,9 @@ async def test_populate_tab_accepts_empty_markdown_to_clear_existing_content():
 
     request_body = docs.batchUpdate.call_args.kwargs["body"]
     assert result["success"] is True
+    assert set(result) == COMMON_RESPONSE_KEYS
+    assert result["action"] == "populate_from_markdown"
+    assert result["link"] == "https://docs.google.com/document/d/doc-abc/edit"
     assert request_body["requests"] == [
         {
             "deleteContentRange": {
@@ -177,6 +194,46 @@ async def test_populate_tab_rejects_missing_tab_before_batch_update():
         )
 
     docs.batchUpdate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_populate_tab_rejects_missing_tab_when_appending():
+    """Missing tabs are rejected even when replace_existing is false."""
+    service = Mock()
+    docs = service.documents.return_value
+    docs.get.return_value.execute.return_value = {
+        "tabs": [
+            {
+                "tabProperties": {"tabId": "t.exists"},
+                "documentTab": {"body": {"content": [{"endIndex": 1}]}},
+            }
+        ]
+    }
+
+    with pytest.raises(UserInputError, match="'t.missing' not found in document"):
+        await _unwrap(docs_tools.manage_doc_tab)(
+            service=service,
+            user_google_email="test@example.com",
+            document_id="doc-abc",
+            action="populate_from_markdown",
+            tab_id="t.missing",
+            markdown_text="Hello",
+            replace_existing=False,
+        )
+
+    docs.batchUpdate.assert_not_called()
+
+
+def test_find_tab_end_index_distinguishes_non_document_tab_from_empty_document_tab():
+    doc = {
+        "tabs": [
+            {"tabProperties": {"tabId": "t.container"}},
+            {"tabProperties": {"tabId": "t.empty"}, "documentTab": {"body": {}}},
+        ]
+    }
+
+    assert docs_tools._find_tab_end_index(doc, "t.container") == 0
+    assert docs_tools._find_tab_end_index(doc, "t.empty") == 1
 
 
 class TestBatchOperationManagerExtractCreatedTabs:
