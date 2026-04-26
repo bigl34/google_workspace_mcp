@@ -2477,21 +2477,18 @@ def _find_tab_end_index(doc: dict, target_tab_id: str) -> Optional[int]:
 
     Returns:
         The end index of the tab's body content, or ``None`` when the
-        *target_tab_id* does not exist in the document at all.  A tab that
-        exists but has no ``documentTab`` (e.g. a non-document tab) raises
-        ``ValueError`` so callers can surface a precise error.
+        *target_tab_id* does not exist in the document at all. A tab that
+        exists but has no ``documentTab`` returns ``0`` so callers can
+        distinguish non-document/container tabs from empty document tabs.
     """
 
     def walk(tabs: list) -> Optional[int]:
         for tab in tabs:
             tab_props = tab.get("tabProperties", {})
             if tab_props.get("tabId") == target_tab_id:
-                document_tab = tab.get("documentTab")
-                if not document_tab:
-                    raise ValueError(
-                        f"Tab '{target_tab_id}' exists but is not a document tab "
-                        "(no documentTab data)."
-                    )
+                if "documentTab" not in tab:
+                    return 0
+                document_tab = tab.get("documentTab", {})
                 body = document_tab.get("body", {})
                 content = body.get("content", [])
                 if content:
@@ -2610,6 +2607,8 @@ async def manage_doc_tab(
         new_tab_id = None
         if "replies" in result and result["replies"]:
             reply = result["replies"][0]
+            # Google returns under "addDocumentTab"; accept "createDocumentTab"
+            # as a defensive fallback.
             for key in ("addDocumentTab", "createDocumentTab"):
                 if key in reply:
                     new_tab_id = reply[key].get("tabProperties", {}).get("tabId")
@@ -2692,6 +2691,9 @@ async def manage_doc_tab(
         raise UserInputError(f"'{tab_id}' not found in document")
 
     if replace_existing:
+        # tab_end includes the segment-terminating newline that Google Docs
+        # refuses to delete, so we delete up to tab_end - 1. Empty tabs
+        # (tab_end <= 2) have nothing to clear.
         if tab_end > 2:
             all_requests.append(
                 {
@@ -2706,6 +2708,7 @@ async def manage_doc_tab(
             )
         all_requests.extend(markdown_to_docs_requests(markdown_text, tab_id=tab_id))
     else:
+        # Append after existing content instead of prepending at index 1.
         insert_at = tab_end - 1 if tab_end > 2 else 1
         all_requests.extend(
             markdown_to_docs_requests(

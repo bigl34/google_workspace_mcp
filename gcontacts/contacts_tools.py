@@ -664,7 +664,7 @@ async def _warmup_search_cache(service: Resource, user_google_email: str) -> Non
 
 
 @server.tool(
-    title='List Contacts',
+    title="List Contacts",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -736,7 +736,7 @@ async def list_contacts(
 
 
 @server.tool(
-    title='Get Contact',
+    title="Get Contact",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -785,7 +785,7 @@ async def get_contact(
 
 
 @server.tool(
-    title='Search Contacts',
+    title="Search Contacts",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -851,7 +851,7 @@ async def search_contacts(
 
 
 @server.tool(
-    title='Manage Contact',
+    title="Manage Contact",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=True,
@@ -1096,7 +1096,7 @@ async def manage_contact(
 
 
 @server.tool(
-    title='List Contact Groups',
+    title="List Contact Groups",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -1167,7 +1167,7 @@ async def list_contact_groups(
 
 
 @server.tool(
-    title='Get Contact Group',
+    title="Get Contact Group",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -1245,7 +1245,7 @@ async def get_contact_group(
 
 
 @server.tool(
-    title='Manage Contacts Batch',
+    title="Manage Contacts Batch",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=True,
@@ -1521,7 +1521,7 @@ async def manage_contacts_batch(
 
 
 @server.tool(
-    title='Manage Contact Group',
+    title="Manage Contact Group",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=True,

@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 @server.tool(
-    title='List Spreadsheets',
+    title="List Spreadsheets",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -102,7 +102,7 @@ async def list_spreadsheets(
 
 
 @server.tool(
-    title='Get Spreadsheet Info',
+    title="Get Spreadsheet Info",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -188,7 +188,7 @@ async def get_spreadsheet_info(
 
 
 @server.tool(
-    title='Read Sheet Values',
+    title="Read Sheet Values",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -311,7 +311,7 @@ async def read_sheet_values(
 
 
 @server.tool(
-    title='Modify Sheet Values',
+    title="Modify Sheet Values",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=True,
@@ -688,7 +688,7 @@ async def _format_sheet_range_impl(
 
 
 @server.tool(
-    title='Format Sheet Range',
+    title="Format Sheet Range",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=False,
@@ -775,7 +775,7 @@ async def format_sheet_range(
 
 
 @server.tool(
-    title='Manage Conditional Formatting',
+    title="Manage Conditional Formatting",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=True,
@@ -1181,7 +1181,7 @@ async def manage_conditional_formatting(
 
 
 @server.tool(
-    title='Create Spreadsheet',
+    title="Create Spreadsheet",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=False,
@@ -1245,7 +1245,7 @@ async def create_spreadsheet(
 
 
 @server.tool(
-    title='Create Sheet',
+    title="Create Sheet",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=False,
@@ -1307,7 +1307,7 @@ def _to_extended_value(val) -> dict:
 
 
 @server.tool(
-    title='List Sheet Tables',
+    title="List Sheet Tables",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -1391,7 +1391,7 @@ async def list_sheet_tables(
 
 
 @server.tool(
-    title='Append Table Rows',
+    title="Append Table Rows",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=False,
@@ -2042,7 +2042,7 @@ async def _resize_sheet_dimensions_impl(
 
 
 @server.tool(
-    title='Resize Sheet Dimensions',
+    title="Resize Sheet Dimensions",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=True,

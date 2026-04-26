@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 @server.tool(
-    title='Create Presentation',
+    title="Create Presentation",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=False,
@@ -65,7 +65,7 @@ async def create_presentation(
 
 
 @server.tool(
-    title='Get Presentation',
+    title="Get Presentation",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -166,7 +166,7 @@ Slides Breakdown:
 
 
 @server.tool(
-    title='Batch Update Presentation',
+    title="Batch Update Presentation",
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=True,
@@ -234,7 +234,7 @@ async def batch_update_presentation(
 
 
 @server.tool(
-    title='Get Page',
+    title="Get Page",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -303,7 +303,7 @@ Page Elements:
 
 
 @server.tool(
-    title='Get Page Thumbnail',
+    title="Get Page Thumbnail",
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
