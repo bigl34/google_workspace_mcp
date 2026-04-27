@@ -301,7 +301,7 @@ def main():
     if args.permissions is None and not _cli_has_read_only and not _cli_has_tools:
         _env_perms = os.getenv("WORKSPACE_MCP_PERMISSIONS", "").strip()
         if _env_perms:
-            args.permissions = _env_perms.split()
+            args.permissions = [p.lower() for p in _env_perms.split()]
     if args.transport is None:
         _env_transport = os.getenv("WORKSPACE_MCP_TRANSPORT", "").strip().lower()
         if _env_transport:
