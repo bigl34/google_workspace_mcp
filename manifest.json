@@ -195,7 +195,8 @@
     "ai-assistant"
   ],
   "privacy_policies": [
-    "https://policies.google.com/privacy"
+    "https://policies.google.com/privacy",
+    "https://workspacemcp.com/privacy"
   ],
   "license": "MIT",
   "repository": {

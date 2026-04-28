@@ -279,7 +279,7 @@ uv run main.py --transport streamable-http --tools gmail drive calendar
 
 ### One-Click Claude Desktop Install
 
-> `.mcpb` bundles server, manifest & dependency metadata — download → double-click → done. No terminal, no JSON editing.
+> `.mcpb` bundles server, manifest & dependency metadata — download → double-click → done. No terminal, no JSON editing. Requires Claude Desktop **1.0.0** or later.
 > Note: MCPB was formerly called DXT; the `dxt` CLI, `.dxt` files, and `@anthropic-ai/dxt` package have been renamed to `mcpb`, `.mcpb`, and `@anthropic-ai/mcpb`.
 
 1. **Download** the latest `.mcpb` bundle from [Releases](https://github.com/taylorwilsdon/google_workspace_mcp/releases)
