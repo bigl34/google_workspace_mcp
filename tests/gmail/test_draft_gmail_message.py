@@ -232,6 +232,72 @@ async def test_draft_gmail_message_appends_gmail_signature_html():
 
 
 @pytest.mark.asyncio
+async def test_send_gmail_message_appends_gmail_signature_html():
+    mock_service = Mock()
+    mock_service.users().messages().send().execute.return_value = {"id": "msg_sig"}
+    mock_service.users().settings().sendAs().list().execute.return_value = {
+        "sendAs": [
+            {
+                "sendAsEmail": "user@example.com",
+                "isPrimary": True,
+                "signature": "<div>Best,<br>Alice</div>",
+            }
+        ]
+    }
+
+    result = await _unwrap(send_gmail_message)(
+        service=mock_service,
+        user_google_email="user@example.com",
+        to="recipient@example.com",
+        subject="Signature test",
+        body="<p>Hello</p>",
+        body_format="html",
+        include_signature=True,
+    )
+
+    assert "Email sent! Message ID: msg_sig" in result
+
+    send_kwargs = (
+        mock_service.users.return_value.messages.return_value.send.call_args.kwargs
+    )
+    raw_message = send_kwargs["body"]["raw"]
+    raw_text = base64.urlsafe_b64decode(raw_message).decode("utf-8", errors="ignore")
+
+    assert "<p>Hello</p>" in raw_text
+    assert "Best,<br>Alice" in raw_text
+
+
+@pytest.mark.asyncio
+async def test_send_gmail_message_skips_signature_when_disabled():
+    mock_service = Mock()
+    mock_service.users().messages().send().execute.return_value = {"id": "msg_nosig"}
+    list_mock = mock_service.users().settings().sendAs().list
+
+    await _unwrap(send_gmail_message)(
+        service=mock_service,
+        user_google_email="user@example.com",
+        to="recipient@example.com",
+        subject="No signature",
+        body="<p>Hello</p>",
+        body_format="html",
+        include_signature=False,
+    )
+
+    # When include_signature is False we must NOT call the settings endpoint
+    # at all (avoids requiring the gmail.settings.basic scope).
+    assert list_mock.call_count == 0
+
+    send_kwargs = (
+        mock_service.users.return_value.messages.return_value.send.call_args.kwargs
+    )
+    raw_message = send_kwargs["body"]["raw"]
+    raw_text = base64.urlsafe_b64decode(raw_message).decode("utf-8", errors="ignore")
+
+    assert "<p>Hello</p>" in raw_text
+    assert "Best," not in raw_text
+
+
+@pytest.mark.asyncio
 async def test_draft_gmail_message_builds_threaded_html_reply_as_multipart_alternative():
     mock_service = Mock()
     mock_service.users().drafts().create().execute.return_value = {"id": "draft_reply"}
@@ -799,6 +865,7 @@ async def test_send_gmail_message_with_url_attachment(monkeypatch):
         subject="URL attachment test",
         body="See attached from URL.",
         attachments=[{"url": "https://example.com/doc.pdf", "filename": "doc.pdf"}],
+        include_signature=False,
     )
 
     assert "Email sent with 1 attachment(s)! Message ID: msg_url" in result

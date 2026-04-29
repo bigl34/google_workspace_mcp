@@ -1869,6 +1869,12 @@ async def send_gmail_message(
             description='Optional list of attachments. Each can have: "url" (fetch from URL — works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR "path" (file path, auto-encodes), OR "content" (standard base64, not urlsafe) + "filename". Optional "mime_type". Example: [{"url": "https://host/attachments/abc-123", "filename": "report.pdf"}]',
         ),
     ] = None,
+    include_signature: Annotated[
+        bool,
+        Field(
+            description="Whether to append the Gmail signature from Settings > Signature when available. Defaults to true.",
+        ),
+    ] = True,
 ) -> str:
     """
     Sends an email using the user's Gmail account. Supports both new emails and replies with optional attachments.
@@ -1898,6 +1904,8 @@ async def send_gmail_message(
         thread_id (Optional[str]): Optional Gmail thread ID to reply within. When provided, sends a reply.
         in_reply_to (Optional[str]): Optional RFC Message-ID of the message being replied to (e.g., '<message123@gmail.com>').
         references (Optional[str]): Optional chain of RFC Message-IDs for proper threading (e.g., '<msg1@gmail.com> <msg2@gmail.com>').
+        include_signature (bool): Whether to append Gmail signature HTML from send-as settings.
+            If unavailable (e.g., missing gmail.settings.basic scope), the email is still sent without a signature.
 
     Returns:
         str: Confirmation message with the sent email's message ID.
@@ -1973,11 +1981,23 @@ async def send_gmail_message(
     # Prepare the email message
     # Use from_email (Send As alias) if provided, otherwise default to authenticated user
     sender_email = from_email or user_google_email
+
+    # Optionally append the Gmail signature from send-as settings, mirroring
+    # draft_gmail_message so sent mail respects the user's Settings > Signature.
+    send_body_content = body
+    if include_signature:
+        signature_html = await _get_send_as_signature_html(
+            service, from_email=sender_email
+        )
+        send_body_content = _append_signature_to_body(
+            send_body_content, body_format, signature_html
+        )
+
     resolved_attachments = await _resolve_url_attachments(attachments)
     raw_message, thread_id_final, attached_count, attachment_errors = (
         _prepare_gmail_message(
             subject=subject,
-            body=body,
+            body=send_body_content,
             to=to,
             cc=cc,
             bcc=bcc,
