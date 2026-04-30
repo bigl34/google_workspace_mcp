@@ -584,21 +584,7 @@ async def _get_send_as_signature_html_for_tool(
     service, from_email: Optional[str] = None
 ) -> str:
     """Fetch signature HTML and convert non-benign failures to tool errors."""
-    try:
-        return await _get_send_as_signature_html(service, from_email=from_email)
-    except ToolExecutionError:
-        raise
-    except HttpError as e:
-        if _is_benign_signature_http_error(e):
-            logger.info(
-                "Skipping Gmail signature fetch: missing auth/scope for settings endpoint."
-            )
-            return ""
-        logger.error(f"Failed to fetch Gmail send-as signatures: {e}", exc_info=True)
-        raise _signature_fetch_tool_error(e) from e
-    except Exception as e:
-        logger.error(f"Failed to fetch Gmail send-as signatures: {e}", exc_info=True)
-        raise _signature_fetch_tool_error(e) from e
+    return await _get_send_as_signature_html(service, from_email=from_email)
 
 
 def _format_attachment_result(attached_count: int, requested_count: int) -> str:
