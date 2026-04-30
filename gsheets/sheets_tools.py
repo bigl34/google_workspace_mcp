@@ -1263,24 +1263,7 @@ async def create_sheet(
     source_sheet_name: Optional[str] = None,
     insert_sheet_index: Optional[int] = None,
 ) -> str:
-    """
-    Creates a new sheet within an existing spreadsheet. Optionally duplicates an
-    existing sheet, preserving all values, formulas, formatting, conditional
-    formatting, and column/row dimensions.
-
-    Args:
-        user_google_email (str): The user's Google email address. Required.
-        spreadsheet_id (str): The ID of the spreadsheet. Required.
-        sheet_name (str): The name of the new sheet. Required.
-        source_sheet_name (Optional[str]): Name of an existing sheet to duplicate.
-            When provided, creates a copy of that sheet instead of a blank one.
-        insert_sheet_index (Optional[int]): 0-based position for the new sheet.
-            0 makes it the first sheet. If not provided, the new sheet is
-            appended at the end.
-
-    Returns:
-        str: Confirmation message of the successful sheet creation.
-    """
+    """Creates a new sheet in the spreadsheet (user_google_email: str, spreadsheet_id: str, sheet_name: str, source_sheet_name: Optional[str] = None, insert_sheet_index: Optional[int] = None)."""
     if insert_sheet_index is not None and (
         isinstance(insert_sheet_index, bool)
         or not isinstance(insert_sheet_index, int)
