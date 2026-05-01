@@ -1041,8 +1041,8 @@ async def import_to_google_doc(
     Args:
         user_google_email (str): The user's Google email address. Required.
         file_name (str): The name for the new Google Doc (extension will be ignored).
-        content (Optional[str]): Text content for text-based formats. Use only for short snippets or content already in memory; for files on disk prefer file_path to avoid context-window costs.
-        file_path (Optional[str]): Local file path for any supported format (MD, TXT, HTML, DOCX, ODT, RTF). Supports file:// URLs. Use for files of any size; does not require loading content into the calling agent's context.
+        content (Optional[str]): Text content for text-based formats. Use only for short snippets or content already in memory.
+        file_path (Optional[str]): Local file path or file:// URL for any supported format (MD, TXT, HTML, DOCX, ODT, RTF). Appropriate for larger files than content, but file_path may still load the file into memory or perform non-streaming reads. Avoid very large files that could exceed memory or time limits; use streaming/chunked uploads or an alternative API for huge files.
         file_url (Optional[str]): Remote URL to fetch the file from (http/https).
         source_format (Optional[str]): Source format hint ('md', 'markdown', 'docx', 'txt', 'html', 'rtf', 'odt').
                                        Auto-detected from file_name extension if not provided.
