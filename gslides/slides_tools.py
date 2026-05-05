@@ -55,17 +55,21 @@ async def _get_presentation_slide_ids(service, presentation_id: str) -> set[str]
             presentationId=presentation_id,
             fields=(
                 "slides(objectId),masters(objectId),"
-                "layouts(objectId),notesMasters(objectId)"
+                "layouts(objectId),notesMaster(objectId)"
             ),
         )
         .execute
     )
-    return {
+    page_ids = {
         page["objectId"]
-        for page_type in ("slides", "masters", "layouts", "notesMasters")
+        for page_type in ("slides", "masters", "layouts")
         for page in result.get(page_type, [])
         if isinstance(page.get("objectId"), str)
     }
+    notes_master = result.get("notesMaster")
+    if isinstance(notes_master, dict) and isinstance(notes_master.get("objectId"), str):
+        page_ids.add(notes_master["objectId"])
+    return page_ids
 
 
 async def _validate_insert_text_targets(

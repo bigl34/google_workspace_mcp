@@ -58,7 +58,7 @@ async def test_batch_update_rejects_insert_text_targeting_other_page_ids():
             "slides": [{"objectId": "slide_1"}],
             "masters": [{"objectId": "master_1"}],
             "layouts": [{"objectId": "layout_1"}],
-            "notesMasters": [{"objectId": "notes_master_1"}],
+            "notesMaster": {"objectId": "notes_master_1"},
         }
     )
 
@@ -99,8 +99,7 @@ async def test_batch_update_rejects_insert_text_targeting_other_page_ids():
     presentations.get.assert_called_once_with(
         presentationId="presentation-1",
         fields=(
-            "slides(objectId),masters(objectId),"
-            "layouts(objectId),notesMasters(objectId)"
+            "slides(objectId),masters(objectId),layouts(objectId),notesMaster(objectId)"
         ),
     )
     presentations.batchUpdate.assert_not_called()
