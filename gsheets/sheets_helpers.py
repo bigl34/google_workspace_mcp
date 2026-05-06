@@ -883,6 +883,139 @@ def _build_gradient_rule(
     return rule_body
 
 
+# ============================================================================
+# Rich Text Helpers (for multi-hyperlink cell support)
+# ============================================================================
+
+
+def utf16_len(text: str) -> int:
+    """
+    Calculate UTF-16 code unit length (what Google Sheets uses for startIndex).
+
+    CRITICAL: Google Sheets textFormatRuns use UTF-16 code units for startIndex,
+    NOT Python codepoints. This matters for emoji, some CJK characters, and
+    other non-BMP (Basic Multilingual Plane) characters.
+
+    Examples:
+        utf16_len("hello") -> 5
+        utf16_len("👍") -> 2  (emoji is a surrogate pair)
+        utf16_len("𝕳𝖊𝖑𝖑𝖔") -> 10  (mathematical letters)
+    """
+    return len(text.encode("utf-16-le")) // 2
+
+
+def parse_single_cell_a1(cell_ref: str) -> tuple[int, int]:
+    """
+    Parse a single cell A1 reference to 0-indexed (row, col).
+
+    Handles:
+        - Simple refs: "A1", "AD2"
+        - Sheet prefixes: "Sheet1!AD2" (sheet name is ignored)
+        - Absolute refs: "$A$1", "$AD$2"
+
+    Returns:
+        Tuple of (row_index, col_index), both 0-indexed.
+
+    Raises:
+        UserInputError: If the cell reference is invalid or missing row/column.
+    """
+    # Strip sheet name if present
+    if "!" in cell_ref:
+        cell_ref = cell_ref.split("!")[-1]
+
+    col_idx, row_idx = _parse_a1_part(cell_ref)
+
+    if col_idx is None:
+        raise UserInputError(f"Cell reference '{cell_ref}' must include a column (e.g., 'A1', not '1').")
+    if row_idx is None:
+        raise UserInputError(f"Cell reference '{cell_ref}' must include a row number (e.g., 'A1', not 'A').")
+
+    return row_idx, col_idx
+
+
+def build_text_format_runs(segments: List[dict]) -> tuple[str, List[dict]]:
+    """
+    Build stringValue and textFormatRuns from segments for Rich Text cells.
+
+    Supports formatting properties:
+    - url: Hyperlink URI
+    - bold, italic, underline, strikethrough: Boolean text styles
+    - fontSize: Integer font size in points
+    - fontFamily: Font family name string
+    - foregroundColor: Hex color string (#RRGGBB)
+
+    CRITICAL IMPLEMENTATION NOTES (from Codex review):
+    1. Uses UTF-16 code units for startIndex (not Python len())
+    2. Runs must be contiguous starting from index 0
+    3. Each run inherits from cell base format, NOT previous run
+    4. No "reset" runs needed between segments
+    5. backgroundColor is cell-level only, not per-character
+
+    Args:
+        segments: List of segment dicts with text and optional formatting
+
+    Returns:
+        Tuple of (full_text, format_runs) where format_runs is the
+        textFormatRuns array for the Sheets API.
+
+    Example:
+        >>> segments = [
+        ...     {"text": "WARNING: ", "bold": True, "foregroundColor": "#FF0000"},
+        ...     {"text": "See "},
+        ...     {"text": "ticket #123", "url": "https://example.com/tickets/123"}
+        ... ]
+        >>> text, runs = build_text_format_runs(segments)
+        >>> text
+        'WARNING: See ticket #123'
+    """
+    full_text = ""
+    format_runs: List[dict] = []
+    current_utf16_index = 0
+
+    for segment in segments:
+        text = segment.get("text", "")
+
+        # Skip empty segments
+        if not text:
+            continue
+
+        text_utf16_len = utf16_len(text)
+
+        # Build format object with all supported properties
+        format_obj: dict = {}
+
+        # Hyperlink
+        if segment.get("url"):
+            format_obj["link"] = {"uri": segment["url"]}
+
+        # Boolean text formatting
+        for prop in ["bold", "italic", "underline", "strikethrough"]:
+            if segment.get(prop):
+                format_obj[prop] = True
+
+        # Font properties (fontSize must be integer)
+        if segment.get("fontSize"):
+            format_obj["fontSize"] = int(segment["fontSize"])
+        if segment.get("fontFamily"):
+            format_obj["fontFamily"] = segment["fontFamily"]
+
+        # Colors (foregroundColor only - backgroundColor is cell-level)
+        if segment.get("foregroundColor"):
+            format_obj["foregroundColor"] = _parse_hex_color(segment["foregroundColor"])
+
+        # ALWAYS emit a run for each segment to maintain contiguity
+        # Even empty format {} is valid - it means "use cell default"
+        format_runs.append({
+            "startIndex": current_utf16_index,
+            "format": format_obj
+        })
+
+        full_text += text
+        current_utf16_index += text_utf16_len
+
+    return full_text, format_runs
+
+
 def _extract_cell_notes_from_grid(spreadsheet: dict) -> list[dict[str, str]]:
     """
     Extract cell notes from spreadsheet grid data.

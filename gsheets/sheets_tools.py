@@ -1350,6 +1350,297 @@ async def create_sheet(
     return text_output
 
 
+@server.tool()
+@handle_http_errors("write_rich_text_cell", service_type="sheets")
+@require_google_service("sheets", "sheets_write")
+async def write_rich_text_cell(
+    service,
+    user_google_email: str,
+    spreadsheet_id: str,
+    cell: str,
+    segments: Union[str, List[dict]],
+    sheet_name: Optional[str] = None,
+) -> str:
+    """
+    Write rich text with multiple hyperlinks to a single cell.
+
+    This tool enables writing cells where different text segments can each have
+    their own clickable hyperlink, all within the same cell. This is useful for
+    creating cells with multiple reference links (e.g., "Issue #123 | Order #456").
+
+    Args:
+        user_google_email (str): The user's Google email address. Required.
+        spreadsheet_id (str): The ID of the spreadsheet. Required.
+        cell (str): Cell reference in A1 notation (e.g., "AD2", "Sheet1!B5", "$A$1"). Required.
+        segments (Union[str, List[dict]]): List of text segments with optional URLs.
+            Each segment is {"text": str, "url": str|None}.
+            Can be a JSON string or Python list. Required.
+        sheet_name (Optional[str]): Sheet name to write to. If not provided and cell
+            doesn't include sheet name, uses the first sheet.
+
+    Example:
+        segments = [
+            {"text": "Issue #123", "url": "https://example.com/issues/123"},
+            {"text": " | "},
+            {"text": "Order #456", "url": "https://example.com/orders/456"}
+        ]
+        Result: Cell displays "Issue #123 | Order #456" with each label
+        as a separate clickable link.
+
+    Returns:
+        str: Success message with cell reference and link count.
+    """
+    logger.info(
+        f"[write_rich_text_cell] Invoked. Email: '{user_google_email}', "
+        f"Spreadsheet: {spreadsheet_id}, Cell: {cell}"
+    )
+
+    # Parse segments if JSON string
+    if isinstance(segments, str):
+        try:
+            parsed_segments = json.loads(segments)
+            if not isinstance(parsed_segments, list):
+                raise ValueError(f"segments must be a list, got {type(parsed_segments).__name__}")
+            segments = parsed_segments
+            logger.info(f"[write_rich_text_cell] Parsed JSON string to list with {len(segments)} segments")
+        except json.JSONDecodeError as e:
+            raise UserInputError(f"Invalid JSON format for segments: {e}")
+        except ValueError as e:
+            raise UserInputError(f"Invalid segments structure: {e}")
+
+    # Validate segments structure
+    for i, seg in enumerate(segments):
+        if not isinstance(seg, dict):
+            raise UserInputError(f"segments[{i}] must be a dict with 'text' key, got {type(seg).__name__}")
+        if "text" not in seg:
+            raise UserInputError(f"segments[{i}] must have a 'text' key")
+
+    # Parse cell reference to get row and column indices
+    row_idx, col_idx = parse_single_cell_a1(cell)
+
+    # Get sheet ID - either from sheet_name parameter or fetch from spreadsheet
+    sheet_id = 0
+    if sheet_name:
+        # Look up sheet ID by name
+        spreadsheet = await asyncio.to_thread(
+            service.spreadsheets()
+            .get(
+                spreadsheetId=spreadsheet_id,
+                fields="sheets.properties"
+            )
+            .execute
+        )
+        found = False
+        for sheet in spreadsheet.get("sheets", []):
+            if sheet["properties"]["title"] == sheet_name:
+                sheet_id = sheet["properties"]["sheetId"]
+                found = True
+                break
+        if not found:
+            available = [s.get("properties", {}).get("title", "Unknown") for s in spreadsheet.get("sheets", [])]
+            raise UserInputError(f"Sheet '{sheet_name}' not found. Available: {', '.join(available)}")
+    else:
+        # Use first sheet if no sheet name provided
+        spreadsheet = await asyncio.to_thread(
+            service.spreadsheets()
+            .get(
+                spreadsheetId=spreadsheet_id,
+                fields="sheets.properties"
+            )
+            .execute
+        )
+        sheets = spreadsheet.get("sheets", [])
+        if sheets:
+            sheet_id = sheets[0]["properties"]["sheetId"]
+
+    # Build rich text components
+    full_text, format_runs = build_text_format_runs(segments)
+
+    if not full_text:
+        raise UserInputError("No text content in segments. Ensure at least one segment has non-empty 'text'.")
+
+    # Build batchUpdate request with updateCells
+    body = {
+        "requests": [{
+            "updateCells": {
+                "rows": [{
+                    "values": [{
+                        "userEnteredValue": {"stringValue": full_text},
+                        "textFormatRuns": format_runs
+                    }]
+                }],
+                "fields": "userEnteredValue,textFormatRuns",
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": row_idx,
+                    "endRowIndex": row_idx + 1,
+                    "startColumnIndex": col_idx,
+                    "endColumnIndex": col_idx + 1
+                }
+            }
+        }]
+    }
+
+    # Execute batchUpdate
+    await asyncio.to_thread(
+        service.spreadsheets()
+        .batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        .execute
+    )
+
+    link_count = sum(1 for s in segments if s.get("url"))
+    text_output = (
+        f"Successfully wrote rich text to cell '{cell}' in spreadsheet {spreadsheet_id} "
+        f"for {user_google_email}. Text: '{full_text[:50]}{'...' if len(full_text) > 50 else ''}' "
+        f"with {link_count} hyperlink(s)."
+    )
+
+    logger.info(f"Successfully wrote rich text to {cell} for {user_google_email}.")
+    return text_output
+
+
+@server.tool()
+@handle_http_errors("write_rich_text_cells", service_type="sheets")
+@require_google_service("sheets", "sheets_write")
+async def write_rich_text_cells(
+    service,
+    user_google_email: str,
+    spreadsheet_id: str,
+    cells: Union[str, List[dict]],
+    sheet_name: Optional[str] = None,
+) -> str:
+    """
+    Write rich text to multiple cells in a single API call.
+
+    This is more efficient than calling write_rich_text_cell multiple times,
+    as it combines all updates into a single batchUpdate request.
+
+    Args:
+        user_google_email (str): The user's Google email address. Required.
+        spreadsheet_id (str): The ID of the spreadsheet. Required.
+        cells (Union[str, List[dict]]): Array of cell definitions.
+            Each definition is {"cell": str, "segments": list}.
+            Can be a JSON string or Python list. Required.
+        sheet_name (Optional[str]): Sheet name to write to. If not provided,
+            uses the first sheet.
+
+    Example:
+        cells = [
+            {"cell": "AD2", "segments": [{"text": "Link1", "url": "https://..."}]},
+            {"cell": "AD3", "segments": [{"text": "Bold", "bold": True}]},
+            {"cell": "AD4", "segments": [{"text": "Red", "foregroundColor": "#FF0000"}]}
+        ]
+
+    Returns:
+        str: Success message with cell count.
+    """
+    logger.info(
+        f"[write_rich_text_cells] Invoked. Email: '{user_google_email}', "
+        f"Spreadsheet: {spreadsheet_id}, Cells count: {len(cells) if isinstance(cells, list) else 'JSON'}"
+    )
+
+    # Parse cells if JSON string
+    if isinstance(cells, str):
+        try:
+            parsed_cells = json.loads(cells)
+            if not isinstance(parsed_cells, list):
+                raise ValueError(f"cells must be a list, got {type(parsed_cells).__name__}")
+            cells = parsed_cells
+            logger.info(f"[write_rich_text_cells] Parsed JSON string to list with {len(cells)} cells")
+        except json.JSONDecodeError as e:
+            raise UserInputError(f"Invalid JSON format for cells: {e}")
+        except ValueError as e:
+            raise UserInputError(f"Invalid cells structure: {e}")
+
+    # Validate cells structure
+    for i, cell_def in enumerate(cells):
+        if not isinstance(cell_def, dict):
+            raise UserInputError(f"cells[{i}] must be a dict with 'cell' and 'segments' keys")
+        if "cell" not in cell_def:
+            raise UserInputError(f"cells[{i}] must have a 'cell' key")
+        if "segments" not in cell_def:
+            raise UserInputError(f"cells[{i}] must have a 'segments' key")
+
+    # Get sheet ID
+    sheet_id = 0
+    spreadsheet = await asyncio.to_thread(
+        service.spreadsheets()
+        .get(
+            spreadsheetId=spreadsheet_id,
+            fields="sheets.properties"
+        )
+        .execute
+    )
+    sheets = spreadsheet.get("sheets", [])
+
+    if sheet_name:
+        found = False
+        for sheet in sheets:
+            if sheet["properties"]["title"] == sheet_name:
+                sheet_id = sheet["properties"]["sheetId"]
+                found = True
+                break
+        if not found:
+            available = [s.get("properties", {}).get("title", "Unknown") for s in sheets]
+            raise UserInputError(f"Sheet '{sheet_name}' not found. Available: {', '.join(available)}")
+    elif sheets:
+        sheet_id = sheets[0]["properties"]["sheetId"]
+
+    # Build multiple updateCells requests
+    requests = []
+    for cell_def in cells:
+        cell_ref = cell_def.get("cell")
+        segments = cell_def.get("segments", [])
+
+        row_idx, col_idx = parse_single_cell_a1(cell_ref)
+        full_text, format_runs = build_text_format_runs(segments)
+
+        if not full_text:
+            continue
+
+        requests.append({
+            "updateCells": {
+                "rows": [{
+                    "values": [{
+                        "userEnteredValue": {"stringValue": full_text},
+                        "textFormatRuns": format_runs
+                    }]
+                }],
+                "fields": "userEnteredValue,textFormatRuns",
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": row_idx,
+                    "endRowIndex": row_idx + 1,
+                    "startColumnIndex": col_idx,
+                    "endColumnIndex": col_idx + 1
+                }
+            }
+        })
+
+    if not requests:
+        raise UserInputError("No valid cells to write. Ensure all cells have non-empty text segments.")
+
+    # Warn if too many requests
+    if len(requests) > 500:
+        logger.warning(f"Large batch: {len(requests)} cells. Consider splitting for reliability.")
+
+    # Execute single batchUpdate with all cells
+    body = {"requests": requests}
+    await asyncio.to_thread(
+        service.spreadsheets()
+        .batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        .execute
+    )
+
+    text_output = (
+        f"Successfully wrote rich text to {len(requests)} cell(s) in spreadsheet {spreadsheet_id} "
+        f"for {user_google_email}."
+    )
+
+    logger.info(f"Successfully wrote rich text to {len(requests)} cells for {user_google_email}.")
+    return text_output
+
+
 def _to_extended_value(val) -> dict:
     """Convert a Python value to a Sheets API ExtendedValue dict."""
     if isinstance(val, bool):

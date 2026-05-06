@@ -69,6 +69,15 @@ CONTACTS_READONLY_SCOPE = "https://www.googleapis.com/auth/contacts.readonly"
 # Google Custom Search API scope
 CUSTOM_SEARCH_SCOPE = "https://www.googleapis.com/auth/cse"
 
+# Google Analytics API scope
+ANALYTICS_READONLY_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
+
+# Google Search Console API scope
+SEARCH_CONSOLE_READONLY_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
+
+# Google Merchant Center API scope
+MERCHANT_CENTER_SCOPE = "https://www.googleapis.com/auth/content"
+
 # Google Apps Script API scopes
 SCRIPT_PROJECTS_SCOPE = "https://www.googleapis.com/auth/script.projects"
 SCRIPT_PROJECTS_READONLY_SCOPE = (
@@ -133,7 +142,15 @@ def has_required_scopes(available_scopes, required_scopes):
 
 
 # Base OAuth scopes required for user identification
-BASE_SCOPES = [USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE, OPENID_SCOPE]
+# Also includes analytics scopes used by external CLI tools
+BASE_SCOPES = [
+    USERINFO_EMAIL_SCOPE,
+    USERINFO_PROFILE_SCOPE,
+    OPENID_SCOPE,
+    ANALYTICS_READONLY_SCOPE,
+    SEARCH_CONSOLE_READONLY_SCOPE,
+    MERCHANT_CENTER_SCOPE,
+]
 
 # Minimal scopes required to accept an MCP bearer token at the protocol layer.
 PROTOCOL_AUTH_SCOPES = [USERINFO_EMAIL_SCOPE, OPENID_SCOPE]
@@ -182,6 +199,12 @@ CONTACTS_SCOPES = [CONTACTS_SCOPE, CONTACTS_READONLY_SCOPE]
 
 CUSTOM_SEARCH_SCOPES = [CUSTOM_SEARCH_SCOPE]
 
+ANALYTICS_SCOPES = [ANALYTICS_READONLY_SCOPE]
+
+SEARCH_CONSOLE_SCOPES = [SEARCH_CONSOLE_READONLY_SCOPE]
+
+MERCHANT_CENTER_SCOPES = [MERCHANT_CENTER_SCOPE]
+
 SCRIPT_SCOPES = [
     SCRIPT_PROJECTS_SCOPE,
     SCRIPT_PROJECTS_READONLY_SCOPE,
@@ -207,6 +230,9 @@ TOOL_SCOPES_MAP = {
     "tasks": TASKS_SCOPES,
     "contacts": CONTACTS_SCOPES,
     "search": CUSTOM_SEARCH_SCOPES,
+    "analytics": ANALYTICS_SCOPES,
+    "search_console": SEARCH_CONSOLE_SCOPES,
+    "merchant_center": MERCHANT_CENTER_SCOPES,
     "appscript": SCRIPT_SCOPES,
 }
 
@@ -223,6 +249,9 @@ TOOL_READONLY_SCOPES_MAP = {
     "tasks": [TASKS_READONLY_SCOPE],
     "contacts": [CONTACTS_READONLY_SCOPE],
     "search": CUSTOM_SEARCH_SCOPES,
+    "analytics": ANALYTICS_SCOPES,
+    "search_console": SEARCH_CONSOLE_SCOPES,
+    "merchant_center": MERCHANT_CENTER_SCOPES,
     "appscript": [
         SCRIPT_PROJECTS_READONLY_SCOPE,
         SCRIPT_DEPLOYMENTS_READONLY_SCOPE,
