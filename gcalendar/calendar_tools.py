@@ -1040,6 +1040,13 @@ async def _modify_event_impl(
                 "summary": summary,
                 "description": description,
                 "location": location,
+                # events().update() is a full replace and 400s ("Missing end
+                # time") when start/end are absent. On a partial update,
+                # preserve the existing structured start/end objects
+                # (date | dateTime + timeZone) so callers need not re-supply
+                # unchanged times.
+                "start": event_body.get("start"),
+                "end": event_body.get("end"),
                 # Use the already-normalized attendee objects (if provided); otherwise preserve existing
                 "attendees": event_body.get("attendees"),
                 "colorId": event_body.get("colorId"),
