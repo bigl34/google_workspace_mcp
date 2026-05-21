@@ -9,7 +9,9 @@ description = "Comprehensive, highly performant Google Workspace Streamable HTTP
 readme = "README.md"
 keywords = [ "mcp", "google", "workspace", "llm", "ai", "claude", "model", "context", "protocol", "server"]
 license = "MIT"
-requires-python = ">=3.10"
+# 3.11 floor: matches the project's own Python classifiers (3.11, 3.12 only)
+# and is required by the resilient aiofile>=3.11.1 constrained in [tool.uv].
+requires-python = ">=3.11"
 dependencies = [
  "fastapi>=0.115.12",
  "fastmcp>=3.2.4",
@@ -118,6 +120,17 @@ dev = [
     "tomlkit>=0.13.3",
     "twine>=5.0.0",
 ]
+
+[tool.uv]
+# Constrain the transitive `aiofile` dependency (pulled in via
+# fastmcp -> py-key-value-aio[filetree] -> aiofile).
+# aiofile 3.9.0 and 3.10.0 ship a version.py that reads package metadata with
+# required-key subscripts (e.g. package_metadata["Author"], ["License"]).
+# Under PEP 621 wheels those headers are absent, so the subscript raises
+# KeyError at module import — crashing every workspace-mcp invocation before
+# any tool runs. aiofile 3.11.1+ reads metadata with .get() and fallbacks.
+# Regression guard: tests/test_aiofile_metadata_smoke.py. Incident: 2026-05-16.
+constraint-dependencies = ["aiofile>=3.11.1"]
 
 [tool.setuptools]
 py-modules = [ "fastmcp_server", "main"]
