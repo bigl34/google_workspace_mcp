@@ -6,6 +6,7 @@ import logging
 import os
 from typing import List, Optional
 from importlib import metadata
+from urllib.parse import urlparse
 
 from core.warning_filters import install_startup_warning_filters
 
@@ -14,7 +15,7 @@ install_startup_warning_filters()
 from auth.auth_info_middleware import AuthInfoMiddleware
 from auth.google_auth import handle_auth_callback, start_auth_flow, check_client_secrets
 from auth.mcp_session_middleware import MCPSessionMiddleware
-from auth.oauth21_session_store import get_oauth21_session_store, set_auth_provider
+from auth.oauth21_session_store import set_auth_provider
 from auth.oauth_config import is_oauth21_enabled, is_external_oauth21_provider
 from auth.oauth_responses import (
     create_error_response,
@@ -36,7 +37,7 @@ from starlette.applications import Starlette
 from starlette.datastructures import MutableHeaders
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.types import Scope, Receive, Send
+from starlette.types import ASGIApp, Scope, Receive, Send
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,6 +46,79 @@ _auth_provider: Optional[GoogleProvider] = None
 _legacy_callback_registered = False
 
 session_middleware = Middleware(MCPSessionMiddleware)
+
+
+def _normalize_origin(origin: str) -> Optional[str]:
+    parsed = urlparse(origin)
+    if not parsed.scheme:
+        return None
+    if parsed.scheme == "vscode-webview":
+        return f"vscode-webview://{parsed.netloc}" if parsed.netloc else None
+    if not parsed.hostname:
+        return None
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    netloc = f"{host}:{port}" if port is not None else host
+    return f"{parsed.scheme}://{netloc}"
+
+
+def _is_loopback_origin(origin: str) -> bool:
+    parsed = urlparse(origin)
+    return parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+
+
+def _get_allowed_http_origins() -> set[str]:
+    from auth.oauth_config import get_oauth_config
+
+    config = get_oauth_config()
+    origins = set()
+    for origin in config.get_allowed_origins():
+        normalized = _normalize_origin(origin)
+        if normalized:
+            origins.add(normalized)
+    if config.external_url:
+        normalized = _normalize_origin(config.external_url)
+        if normalized:
+            origins.add(normalized)
+    return origins
+
+
+def _is_origin_allowed(origin: str) -> bool:
+    if _is_loopback_origin(origin):
+        return True
+    normalized = _normalize_origin(origin)
+    if not normalized:
+        return False
+    return normalized in _get_allowed_http_origins()
+
+
+class OriginValidationMiddleware:
+    """Reject browser-originated HTTP requests from untrusted origins."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers") or [])
+            raw_origin = headers.get(b"origin")
+            if raw_origin:
+                origin = raw_origin.decode("latin-1")
+                if not _is_origin_allowed(origin):
+                    logger.warning("Rejected HTTP request from Origin: %s", origin)
+                    response = JSONResponse(
+                        {"error": "Origin not allowed"}, status_code=403
+                    )
+                    await response(scope, receive, send)
+                    return
+
+        await self.app(scope, receive, send)
+
+
+origin_validation_middleware = Middleware(OriginValidationMiddleware)
 
 
 class WellKnownCacheControlMiddleware:
@@ -96,13 +170,17 @@ class SecureFastMCP(FastMCP):
 
         # Add middleware in order (first added = outermost layer)
         app.user_middleware.insert(0, well_known_cache_control_middleware)
+        app.user_middleware.insert(1, origin_validation_middleware)
 
         # Session Management - extracts session info for MCP context
-        app.user_middleware.insert(1, session_middleware)
+        app.user_middleware.insert(2, session_middleware)
 
         # Rebuild middleware stack
         app.middleware_stack = app.build_middleware_stack()
-        logger.info("Added middleware stack: WellKnownCacheControl, Session Management")
+        logger.info(
+            "Added middleware stack: WellKnownCacheControl, OriginValidation, "
+            "Session Management"
+        )
         return app
 
     async def list_tools(self, *, run_middleware: bool = True):
@@ -229,8 +307,10 @@ def configure_server_for_http():
 
     if oauth21_enabled:
         if not config.is_configured():
-            logger.warning("OAuth 2.1 enabled but OAuth credentials not configured")
-            return
+            raise RuntimeError(
+                "streamable-http transport requires GOOGLE_OAUTH_CLIENT_ID so OAuth 2.1 "
+                "protocol authentication can be configured."
+            )
 
         def validate_and_derive_jwt_key(
             jwt_signing_key_override: str | None, client_secret: str | None
@@ -550,7 +630,10 @@ def configure_server_for_http():
             )
             raise
     else:
-        logger.info("OAuth 2.0 mode - Server will use legacy authentication.")
+        logger.info(
+            "OAuth 2.0 legacy mode - streamable HTTP defaults to loopback unless "
+            "WORKSPACE_MCP_HOST is explicitly set."
+        )
         server.auth = None
         _auth_provider = None
         set_auth_provider(None)
@@ -642,27 +725,6 @@ async def legacy_oauth2_callback(request: Request) -> HTMLResponse:
         logger.info(
             f"OAuth callback: Successfully authenticated user: {verified_user_id}."
         )
-
-        try:
-            store = get_oauth21_session_store()
-
-            store.store_session(
-                user_email=verified_user_id,
-                access_token=credentials.token,
-                refresh_token=credentials.refresh_token,
-                token_uri=credentials.token_uri,
-                client_id=credentials.client_id,
-                client_secret=credentials.client_secret,
-                scopes=credentials.scopes,
-                expiry=credentials.expiry,
-                session_id=f"google-{state}",
-                mcp_session_id=mcp_session_id,
-            )
-            logger.info(
-                f"Stored Google credentials in OAuth 2.1 session store for {verified_user_id}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to store credentials in OAuth 2.1 store: {e}")
 
         return create_success_response(verified_user_id)
     except Exception as e:

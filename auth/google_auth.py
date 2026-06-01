@@ -1,6 +1,7 @@
 # auth/google_auth.py
 
 import asyncio
+import hashlib
 import json
 import jwt
 import logging
@@ -35,6 +36,13 @@ except ImportError:
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _session_id_log_fingerprint(session_id: Optional[str]) -> str:
+    """Return a stable, non-reversible session identifier for logs."""
+    if not session_id:
+        return "<none>"
+    return f"sha256:{hashlib.sha256(session_id.encode()).hexdigest()[:12]}"
 
 
 # Constants
@@ -701,6 +709,15 @@ async def handle_auth_callback(
             (state[:8] if state else "<fallback>"),
             state_info.get("session_id") or "<unknown>",
         )
+
+        if not session_id:
+            originating_session_id = state_info.get("session_id")
+            if originating_session_id:
+                session_id = originating_session_id
+                logger.info(
+                    "OAuth callback: bound credentials to originating MCP session %s",
+                    _session_id_log_fingerprint(originating_session_id),
+                )
 
         flow = create_oauth_flow(
             scopes=scopes,

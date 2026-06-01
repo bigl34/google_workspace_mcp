@@ -542,6 +542,7 @@ SCOPE_GROUPS = {
     "gmail_settings_basic": GMAIL_SETTINGS_BASIC_SCOPE,
     # Drive scopes
     "drive": DRIVE_SCOPE,
+    "drive_full": DRIVE_SCOPE,
     "drive_read": DRIVE_READONLY_SCOPE,
     "drive_file": DRIVE_FILE_SCOPE,
     # Docs scopes
@@ -577,6 +578,7 @@ SCOPE_GROUPS = {
     # Apps Script scopes
     "script_readonly": SCRIPT_PROJECTS_READONLY_SCOPE,
     "script_projects": SCRIPT_PROJECTS_SCOPE,
+    "script_full": SCRIPT_PROJECTS_SCOPE,
     "script_deployments": SCRIPT_DEPLOYMENTS_SCOPE,
     "script_deployments_readonly": SCRIPT_DEPLOYMENTS_READONLY_SCOPE,
     "script_run": SCRIPT_EXTERNAL_REQUEST_SCOPE,

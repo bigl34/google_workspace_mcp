@@ -26,7 +26,11 @@ def _load_startup_dependencies():
         is_stateless_mode,
         is_service_account_enabled,
     )
-    from core.log_formatter import EnhancedLogFormatter, configure_file_logging
+    from core.log_formatter import (
+        EnhancedLogFormatter,
+        configure_file_logging,
+        install_noisy_log_filters,
+    )
     from core.utils import check_credentials_directory_permissions
     from core.server import server, set_transport_mode, configure_server_for_http
     from core.tool_tier_loader import resolve_tools_from_tier
@@ -45,6 +49,7 @@ def _load_startup_dependencies():
         is_service_account_enabled,
         EnhancedLogFormatter,
         configure_file_logging,
+        install_noisy_log_filters,
         check_credentials_directory_permissions,
         server,
         set_transport_mode,
@@ -65,6 +70,7 @@ def _load_startup_dependencies():
     is_service_account_enabled,
     EnhancedLogFormatter,
     configure_file_logging,
+    install_noisy_log_filters,
     check_credentials_directory_permissions,
     server,
     set_transport_mode,
@@ -93,6 +99,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+install_noisy_log_filters()
 configure_file_logging()
 
 
@@ -120,6 +127,51 @@ def resolve_callback_port_for_transport(transport: str) -> None:
         resolve_stdio_callback_port()
     else:
         os.environ.pop("WORKSPACE_MCP_RESOLVED_PORT", None)
+
+
+def resolve_bind_host_for_transport(transport: str) -> str:
+    """Choose a safe default bind host for the selected transport/auth mode."""
+    configured_host = os.getenv("WORKSPACE_MCP_HOST")
+    host = configured_host or "0.0.0.0"
+    if transport != "streamable-http":
+        return host
+
+    config = get_oauth_config()
+    if config.is_oauth21_enabled():
+        return host
+
+    if configured_host:
+        if configured_host not in {"localhost", "127.0.0.1", "::1"}:
+            logger.warning(
+                "Legacy streamable-http mode has no MCP-level auth provider and is "
+                "bound to %s because WORKSPACE_MCP_HOST was explicitly set. "
+                "Use MCP_ENABLE_OAUTH21=true for remotely reachable HTTP deployments.",
+                configured_host,
+            )
+        return configured_host
+
+    logger.warning(
+        "Legacy streamable-http mode has no MCP-level auth provider; binding to "
+        "127.0.0.1 by default. Set WORKSPACE_MCP_HOST explicitly only for trusted "
+        "networks, or use MCP_ENABLE_OAUTH21=true for remote HTTP deployments."
+    )
+    return "127.0.0.1"
+
+
+def validate_streamable_http_auth(transport: str) -> None:
+    """Reject misconfigured OAuth 2.1 HTTP before starting."""
+    if transport != "streamable-http":
+        return
+
+    config = get_oauth_config()
+    if config.is_oauth21_enabled() and not config.is_configured():
+        print(
+            "Error: streamable-http transport with MCP_ENABLE_OAUTH21=true requires "
+            "GOOGLE_OAUTH_CLIENT_ID so OAuth 2.1 protocol authentication can be "
+            "configured.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 # Single source of truth: service name -> module path.
@@ -402,6 +454,7 @@ def main():
         )
         sys.exit(1)
 
+    validate_streamable_http_auth(args.transport)
     resolve_callback_port_for_transport(args.transport)
 
     # Set port and base URI once for reuse throughout the function
@@ -410,7 +463,7 @@ def main():
     else:
         port = int(os.getenv("PORT", os.getenv("WORKSPACE_MCP_PORT", "8000")))
     base_uri = os.getenv("WORKSPACE_MCP_BASE_URI", "http://localhost")
-    host = os.getenv("WORKSPACE_MCP_HOST", "0.0.0.0")
+    host = resolve_bind_host_for_transport(args.transport)
     external_url = os.getenv("WORKSPACE_EXTERNAL_URL")
     display_url = external_url if external_url else f"{base_uri}:{port}"
 

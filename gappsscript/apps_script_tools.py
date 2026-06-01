@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 from auth.service_decorator import require_google_service
 from core.server import server
 from mcp.types import ToolAnnotations
-from core.utils import handle_http_errors
+from core.utils import handle_http_errors, ObjectList
 
 logger = logging.getLogger(__name__)
 
@@ -438,7 +438,7 @@ async def run_script_function(
     user_google_email: str,
     script_id: str,
     function_name: str,
-    parameters: Optional[list[object]] = None,
+    parameters: Optional[ObjectList] = None,
     dev_mode: bool = False,
 ) -> str:
     """

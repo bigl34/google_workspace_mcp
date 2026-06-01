@@ -28,6 +28,8 @@ drive:
     - create_drive_file
     - create_drive_folder
     - import_to_google_doc
+    - import_to_google_slides
+    - import_to_google_sheets
     - get_drive_shareable_link
   extended:
     - list_drive_items

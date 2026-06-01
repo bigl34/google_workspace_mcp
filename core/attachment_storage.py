@@ -9,6 +9,7 @@ import base64
 import logging
 import os
 import re
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import NamedTuple, Optional, Dict
@@ -46,6 +47,11 @@ def sanitize_attachment_filename(filename: Optional[str]) -> str:
     """Return a filesystem-safe attachment filename."""
     if not filename:
         return "attachment"
+
+    # Normalize Unicode space separators (category "Zs") to a plain ASCII space.
+    filename = "".join(
+        " " if unicodedata.category(ch) == "Zs" else ch for ch in filename
+    )
 
     sanitized = _WINDOWS_RESERVED_FILENAME_CHARS.sub("_", filename).rstrip(" .")
     if not sanitized:
