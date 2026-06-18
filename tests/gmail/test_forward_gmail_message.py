@@ -24,13 +24,43 @@ def get_body_and_attachments(mime_msg):
     """Return (body_part, [attachment_parts]) for plain or multipart messages."""
     if not mime_msg.is_multipart():
         return mime_msg, []
-    parts = mime_msg.get_payload()
-    return parts[0], parts[1:]
+
+    body_part = None
+    attachments = []
+    for part in mime_msg.walk():
+        if part.is_multipart():
+            continue
+        if part.get_content_disposition() == "attachment":
+            attachments.append(part)
+            continue
+        if body_part is None and part.get_content_maintype() == "text":
+            body_part = part
+
+    return body_part, attachments
 
 
-def get_body_text(mime_msg):
+def get_body_part(mime_msg, subtype=None):
+    """Return the first text body part, optionally matching a specific subtype."""
+    if not mime_msg.is_multipart():
+        if subtype is None or mime_msg.get_content_subtype() == subtype:
+            return mime_msg
+        return None
+
+    for part in mime_msg.walk():
+        if part.is_multipart() or part.get_content_disposition() == "attachment":
+            continue
+        if part.get_content_maintype() != "text":
+            continue
+        if subtype is None or part.get_content_subtype() == subtype:
+            return part
+
+    return None
+
+
+def get_body_text(mime_msg, subtype=None):
     """Decode the text/body part of a sent MIME message to a string."""
-    body_part, _ = get_body_and_attachments(mime_msg)
+    body_part = get_body_part(mime_msg, subtype=subtype)
+    assert body_part is not None
     return body_part.get_payload(decode=True).decode()
 
 
@@ -166,9 +196,10 @@ async def test_forward_html_email():
 
     sent = get_sent_mime_message(mock_service)
     assert sent["Subject"] == "Fwd: HTML Test"
-    body_part, _ = get_body_and_attachments(sent)
+    body_part = get_body_part(sent, subtype="html")
+    assert body_part is not None
     assert body_part.get_content_subtype() == "html"
-    body = get_body_text(sent)
+    body = get_body_text(sent, subtype="html")
     assert "<strong>HTML</strong>" in body
     # Header values are HTML-escaped in the forward block (no raw "<" injection).
     assert "Forwarded message" in body
@@ -222,9 +253,10 @@ async def test_forward_with_message_html():
     assert "fwd004" in result
 
     sent = get_sent_mime_message(mock_service)
-    body_part, _ = get_body_and_attachments(sent)
+    body_part = get_body_part(sent, subtype="html")
+    assert body_part is not None
     assert body_part.get_content_subtype() == "html"
-    body = get_body_text(sent)
+    body = get_body_text(sent, subtype="html")
     assert "<b>Note:</b> See below." in body
     assert "Original HTML content." in body
 
@@ -253,10 +285,11 @@ async def test_forward_plain_original_with_html_note():
     assert "fwd009" in result
 
     sent = get_sent_mime_message(mock_service)
-    body_part, _ = get_body_and_attachments(sent)
+    body_part = get_body_part(sent, subtype="html")
+    assert body_part is not None
     # HTML format must be honored even though the original was plain text.
     assert body_part.get_content_subtype() == "html"
-    body = get_body_text(sent)
+    body = get_body_text(sent, subtype="html")
     assert "<b>Heads up</b>" in body
     # The plain-text original is escaped and newline-converted into the HTML body.
     assert "Line one<br/>Line two" in body
