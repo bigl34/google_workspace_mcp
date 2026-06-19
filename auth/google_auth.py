@@ -17,10 +17,12 @@ from google.auth.transport.requests import Request
 from google.auth.exceptions import RefreshError
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+import httplib2
+import google_auth_httplib2
 from auth.scopes import SCOPES, get_current_scopes, has_required_scopes  # noqa
 from auth.oauth21_session_store import get_oauth21_session_store
 from auth.credential_store import get_credential_store
-from auth.oauth_config import get_oauth_config, is_oauth21_enabled, is_stateless_mode
+from auth.oauth_config import is_oauth21_enabled, is_stateless_mode
 from core.config import (
     get_transport_mode,
     get_oauth_redirect_uri,
@@ -82,6 +84,15 @@ def get_default_credentials_dir():
 
 
 DEFAULT_CREDENTIALS_DIR = get_default_credentials_dir()
+
+
+def _build_authorized_http(
+    credentials: Credentials, timeout: int = 30
+) -> google_auth_httplib2.AuthorizedHttp:
+    """Return credentialed HTTP with an explicit socket timeout."""
+    http = httplib2.Http(timeout=timeout)
+    return google_auth_httplib2.AuthorizedHttp(credentials, http=http)
+
 
 # Session credentials now handled by OAuth21SessionStore - no local cache needed
 # Centralized Client Secrets Path Logic
@@ -1193,7 +1204,7 @@ def get_user_info(
     try:
         # Using googleapiclient discovery to get user info
         # Requires 'google-api-python-client' library
-        service = build("oauth2", "v2", credentials=credentials)
+        service = build("oauth2", "v2", http=_build_authorized_http(credentials))
         user_info = service.userinfo().get().execute()
         logger.info(f"Successfully fetched user info: {user_info.get('email')}")
         return user_info
@@ -1315,23 +1326,18 @@ async def get_authenticated_google_service(
         )
 
         redirect_uri = get_oauth_redirect_uri()
-        transport_mode = get_transport_mode()
-        if transport_mode == "stdio":
-            # Only stdio legacy OAuth depends on the standalone callback server.
-            from auth.oauth_callback_server import ensure_oauth_callback_available
+        # Only stdio legacy OAuth depends on the standalone callback server; the
+        # helper no-ops in other transports and binds the port lazily (#832).
+        from auth.oauth_callback_server import ensure_stdio_oauth_callback_available
 
-            config = get_oauth_config()
-            success, error_msg = await asyncio.to_thread(
-                ensure_oauth_callback_available,
-                transport_mode,
-                config.port,
-                config.base_uri,
+        success, error_msg = await asyncio.to_thread(
+            ensure_stdio_oauth_callback_available
+        )
+        if not success:
+            error_detail = f" ({error_msg})" if error_msg else ""
+            raise GoogleAuthenticationError(
+                f"Cannot initiate OAuth flow - callback server unavailable{error_detail}"
             )
-            if not success:
-                error_detail = f" ({error_msg})" if error_msg else ""
-                raise GoogleAuthenticationError(
-                    f"Cannot initiate OAuth flow - callback server unavailable{error_detail}"
-                )
 
         # Generate auth URL and raise exception with it
         auth_response = await start_auth_flow(
@@ -1344,7 +1350,7 @@ async def get_authenticated_google_service(
         raise GoogleAuthenticationError(auth_response)
 
     try:
-        service = build(service_name, version, credentials=credentials)
+        service = build(service_name, version, http=_build_authorized_http(credentials))
         log_user_email = user_google_email
 
         # Try to get email from credentials if needed for validation

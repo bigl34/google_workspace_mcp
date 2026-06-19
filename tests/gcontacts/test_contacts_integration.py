@@ -29,6 +29,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 from gcontacts.contacts_tools import (
     manage_contact as _manage_contact_wrapped,
     manage_contacts_batch as _manage_contacts_batch_wrapped,
+)
+from gcontacts.contacts_helpers import (
     _format_contact,
     _normalize_phone,
 )

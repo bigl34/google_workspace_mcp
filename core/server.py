@@ -6,7 +6,7 @@ import logging
 import os
 from typing import List, Optional
 from importlib import metadata
-from urllib.parse import urlparse
+from urllib.parse import urlparse, ParseResult
 
 from core.warning_filters import install_startup_warning_filters
 
@@ -48,12 +48,25 @@ _legacy_callback_registered = False
 session_middleware = Middleware(MCPSessionMiddleware)
 
 
-def _normalize_origin(origin: str) -> Optional[str]:
-    parsed = urlparse(origin)
+# Schemes whose origins are trusted by the scheme alone. The Origin header is a
+# browser-forbidden header, so a remote web page (the DNS-rebinding threat this
+# middleware defends against) cannot forge one of these — only the local IDE
+# runtime emits them. VS Code in particular assigns a fresh, unpredictable host
+# (a per-session GUID) to every webview, so its origin can never be enumerated in
+# an allowlist; the scheme itself is the trust boundary.
+TRUSTED_ORIGIN_SCHEMES = frozenset({"vscode-webview"})
+
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+# Default authority ports per scheme, used to compare an Origin against the Host
+# header that received the request (a same-origin check).
+_DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
+
+
+def _normalize_parsed(parsed: ParseResult) -> Optional[str]:
     if not parsed.scheme:
         return None
-    if parsed.scheme == "vscode-webview":
-        return f"vscode-webview://{parsed.netloc}" if parsed.netloc else None
     if not parsed.hostname:
         return None
     try:
@@ -65,9 +78,8 @@ def _normalize_origin(origin: str) -> Optional[str]:
     return f"{parsed.scheme}://{netloc}"
 
 
-def _is_loopback_origin(origin: str) -> bool:
-    parsed = urlparse(origin)
-    return parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+def _normalize_origin(origin: str) -> Optional[str]:
+    return _normalize_parsed(urlparse(origin))
 
 
 def _get_allowed_http_origins() -> set[str]:
@@ -87,12 +99,37 @@ def _get_allowed_http_origins() -> set[str]:
 
 
 def _is_origin_allowed(origin: str) -> bool:
-    if _is_loopback_origin(origin):
+    parsed = urlparse(origin)
+    if parsed.scheme in TRUSTED_ORIGIN_SCHEMES:
         return True
-    normalized = _normalize_origin(origin)
+    if parsed.hostname in _LOOPBACK_HOSTS:
+        return True
+    normalized = _normalize_parsed(parsed)
     if not normalized:
         return False
     return normalized in _get_allowed_http_origins()
+
+
+def _is_same_origin_as_host(origin: str, host_header: Optional[str]) -> bool:
+    """Return True when the Origin's authority matches the request's Host header.
+
+    A same-origin request is the server's own page calling back to the host that
+    served it, so it is never the cross-site/DNS-rebinding threat this middleware
+    guards against. Matching the Host header lets a single deployment answer on any
+    number of hostnames without enumerating each one in the allowlist.
+    """
+    if not host_header:
+        return False
+    parsed = urlparse(origin)
+    if not parsed.hostname:
+        return False
+    host = urlparse(f"//{host_header}")
+    try:
+        origin_port = parsed.port or _DEFAULT_PORTS.get(parsed.scheme)
+        host_port = host.port or _DEFAULT_PORTS.get(parsed.scheme)
+    except ValueError:
+        return False
+    return parsed.hostname == host.hostname and origin_port == host_port
 
 
 class OriginValidationMiddleware:
@@ -107,7 +144,11 @@ class OriginValidationMiddleware:
             raw_origin = headers.get(b"origin")
             if raw_origin:
                 origin = raw_origin.decode("latin-1")
-                if not _is_origin_allowed(origin):
+                raw_host = headers.get(b"host")
+                host_header = raw_host.decode("latin-1") if raw_host else None
+                if not _is_origin_allowed(origin) and not _is_same_origin_as_host(
+                    origin, host_header
+                ):
                     logger.warning("Rejected HTTP request from Origin: %s", origin)
                     response = JSONResponse(
                         {"error": "Origin not allowed"}, status_code=403
@@ -778,22 +819,16 @@ async def start_google_auth(
         return f"**Authentication Error:** {error_message}"
 
     try:
-        transport_mode = get_transport_mode()
-        if transport_mode == "stdio":
-            # Only stdio legacy OAuth depends on the standalone callback server.
-            from auth.oauth_callback_server import ensure_oauth_callback_available
-            from auth.oauth_config import get_oauth_config
+        # Only stdio legacy OAuth depends on the standalone callback server; the
+        # helper no-ops in other transports and binds the port lazily (#832).
+        from auth.oauth_callback_server import ensure_stdio_oauth_callback_available
 
-            config = get_oauth_config()
-            success, error_msg = await asyncio.to_thread(
-                ensure_oauth_callback_available,
-                transport_mode,
-                config.port,
-                config.base_uri,
-            )
-            if not success:
-                error_detail = f" ({error_msg})" if error_msg else ""
-                return f"**Error:** Cannot initiate OAuth flow - callback server unavailable{error_detail}"
+        success, error_msg = await asyncio.to_thread(
+            ensure_stdio_oauth_callback_available
+        )
+        if not success:
+            error_detail = f" ({error_msg})" if error_msg else ""
+            return f"**Error:** Cannot initiate OAuth flow - callback server unavailable{error_detail}"
 
         auth_message = await start_auth_flow(
             user_google_email=user_google_email,

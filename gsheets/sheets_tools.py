@@ -18,6 +18,8 @@ from core.utils import handle_http_errors, UserInputError, StringList
 from core.comments import create_comment_tools
 from gsheets.sheets_helpers import (
     CONDITION_TYPES,
+    build_text_format_runs,
+    parse_single_cell_a1,
     _a1_range_for_values,
     _column_to_index,
     _build_boolean_rule,

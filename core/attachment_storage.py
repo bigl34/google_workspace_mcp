@@ -288,6 +288,20 @@ def get_attachment_url(file_id: str) -> str:
     """
     from core.config import WORKSPACE_MCP_PORT, WORKSPACE_MCP_BASE_URI
 
+    # In stdio mode the attachment route is served by the lazily-started callback
+    # server; bring it up now so the URL we hand out is actually reachable. The
+    # import is local to avoid pulling the FastAPI/uvicorn auth stack into this
+    # lightweight, widely-imported module (matches every other call site, #832).
+    from auth.oauth_callback_server import ensure_stdio_oauth_callback_available
+
+    success, error_msg = ensure_stdio_oauth_callback_available()
+    if not success:
+        logger.warning(
+            "Failed to start stdio attachment server; attachment URL may be "
+            "unreachable: %s",
+            error_msg,
+        )
+
     # Use external URL if set (for reverse proxy scenarios)
     external_url = os.getenv("WORKSPACE_EXTERNAL_URL")
     if external_url:

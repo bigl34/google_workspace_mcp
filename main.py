@@ -829,22 +829,14 @@ def main():
         else:
             safe_print("")
             safe_print("🚀 Starting STDIO server")
-            # Start minimal OAuth callback server for stdio mode (not needed for service accounts)
+            # The OAuth callback / attachment server is started lazily — only when
+            # an auth flow is initiated or an attachment URL is handed out — so
+            # short-lived spawns (e.g. client health checks) never bind a port and
+            # cannot exhaust the 8000-8004 fallback range (see issue #832).
             if not is_service_account_enabled():
-                from auth.oauth_callback_server import ensure_oauth_callback_available
-
-                success, error_msg = ensure_oauth_callback_available(
-                    "stdio", port, base_uri
+                safe_print(
+                    f"   OAuth callback server will start on demand at {display_url}/oauth2callback"
                 )
-                if success:
-                    safe_print(
-                        f"   OAuth callback server started on {display_url}/oauth2callback"
-                    )
-                else:
-                    warning_msg = "   ⚠️  Warning: Failed to start OAuth callback server"
-                    if error_msg:
-                        warning_msg += f": {error_msg}"
-                    safe_print(warning_msg)
 
         safe_print("✅ Ready for MCP connections")
         safe_print("")

@@ -15,7 +15,9 @@ async def test_start_google_auth_skips_preflight_outside_stdio(monkeypatch):
 
     monkeypatch.setattr("core.server.is_oauth21_enabled", lambda: False)
     monkeypatch.setattr("core.server.check_client_secrets", lambda: None)
-    monkeypatch.setattr("core.server.get_transport_mode", lambda: "streamable-http")
+    monkeypatch.setattr(
+        "auth.oauth_callback_server.get_transport_mode", lambda: "streamable-http"
+    )
     monkeypatch.setattr(
         "core.server.get_oauth_redirect_uri_for_current_mode",
         lambda: "http://localhost:8000/oauth2callback",
@@ -48,7 +50,9 @@ async def test_start_google_auth_preflights_in_stdio(monkeypatch):
 
     monkeypatch.setattr("core.server.is_oauth21_enabled", lambda: False)
     monkeypatch.setattr("core.server.check_client_secrets", lambda: None)
-    monkeypatch.setattr("core.server.get_transport_mode", lambda: "stdio")
+    monkeypatch.setattr(
+        "auth.oauth_callback_server.get_transport_mode", lambda: "stdio"
+    )
     monkeypatch.setattr("core.server.asyncio.to_thread", fake_to_thread)
     monkeypatch.setattr(
         "core.server.get_oauth_redirect_uri_for_current_mode",
@@ -56,7 +60,7 @@ async def test_start_google_auth_preflights_in_stdio(monkeypatch):
     )
     monkeypatch.setattr("core.server.start_auth_flow", fake_start_auth_flow)
     monkeypatch.setattr(
-        "auth.oauth_config.get_oauth_config",
+        "auth.oauth_callback_server.get_oauth_config",
         lambda: SimpleNamespace(port=8000, base_uri="http://localhost"),
     )
     monkeypatch.setattr(
