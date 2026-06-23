@@ -201,7 +201,9 @@ async def get_doc_content(
         get_params = {"documentId": document_id, "includeTabsContent": True}
         if suggestions_view_mode:
             get_params["suggestionsViewMode"] = suggestions_view_mode
-            logger.info(f"[get_doc_content] Using suggestionsViewMode: {suggestions_view_mode}")
+            logger.info(
+                f"[get_doc_content] Using suggestionsViewMode: {suggestions_view_mode}"
+            )
         doc_data = await asyncio.to_thread(
             docs_service.documents()
             .get(

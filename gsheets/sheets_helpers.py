@@ -926,9 +926,13 @@ def parse_single_cell_a1(cell_ref: str) -> tuple[int, int]:
     col_idx, row_idx = _parse_a1_part(cell_ref)
 
     if col_idx is None:
-        raise UserInputError(f"Cell reference '{cell_ref}' must include a column (e.g., 'A1', not '1').")
+        raise UserInputError(
+            f"Cell reference '{cell_ref}' must include a column (e.g., 'A1', not '1')."
+        )
     if row_idx is None:
-        raise UserInputError(f"Cell reference '{cell_ref}' must include a row number (e.g., 'A1', not 'A').")
+        raise UserInputError(
+            f"Cell reference '{cell_ref}' must include a row number (e.g., 'A1', not 'A')."
+        )
 
     return row_idx, col_idx
 
@@ -1005,10 +1009,7 @@ def build_text_format_runs(segments: List[dict]) -> tuple[str, List[dict]]:
 
         # ALWAYS emit a run for each segment to maintain contiguity
         # Even empty format {} is valid - it means "use cell default"
-        format_runs.append({
-            "startIndex": current_utf16_index,
-            "format": format_obj
-        })
+        format_runs.append({"startIndex": current_utf16_index, "format": format_obj})
 
         full_text += text
         current_utf16_index += text_utf16_len
