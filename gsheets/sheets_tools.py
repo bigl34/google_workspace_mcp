@@ -1402,9 +1402,13 @@ async def write_rich_text_cell(
         try:
             parsed_segments = json.loads(segments)
             if not isinstance(parsed_segments, list):
-                raise ValueError(f"segments must be a list, got {type(parsed_segments).__name__}")
+                raise ValueError(
+                    f"segments must be a list, got {type(parsed_segments).__name__}"
+                )
             segments = parsed_segments
-            logger.info(f"[write_rich_text_cell] Parsed JSON string to list with {len(segments)} segments")
+            logger.info(
+                f"[write_rich_text_cell] Parsed JSON string to list with {len(segments)} segments"
+            )
         except json.JSONDecodeError as e:
             raise UserInputError(f"Invalid JSON format for segments: {e}")
         except ValueError as e:
@@ -1413,7 +1417,9 @@ async def write_rich_text_cell(
     # Validate segments structure
     for i, seg in enumerate(segments):
         if not isinstance(seg, dict):
-            raise UserInputError(f"segments[{i}] must be a dict with 'text' key, got {type(seg).__name__}")
+            raise UserInputError(
+                f"segments[{i}] must be a dict with 'text' key, got {type(seg).__name__}"
+            )
         if "text" not in seg:
             raise UserInputError(f"segments[{i}] must have a 'text' key")
 
@@ -1426,10 +1432,7 @@ async def write_rich_text_cell(
         # Look up sheet ID by name
         spreadsheet = await asyncio.to_thread(
             service.spreadsheets()
-            .get(
-                spreadsheetId=spreadsheet_id,
-                fields="sheets.properties"
-            )
+            .get(spreadsheetId=spreadsheet_id, fields="sheets.properties")
             .execute
         )
         found = False
@@ -1439,16 +1442,18 @@ async def write_rich_text_cell(
                 found = True
                 break
         if not found:
-            available = [s.get("properties", {}).get("title", "Unknown") for s in spreadsheet.get("sheets", [])]
-            raise UserInputError(f"Sheet '{sheet_name}' not found. Available: {', '.join(available)}")
+            available = [
+                s.get("properties", {}).get("title", "Unknown")
+                for s in spreadsheet.get("sheets", [])
+            ]
+            raise UserInputError(
+                f"Sheet '{sheet_name}' not found. Available: {', '.join(available)}"
+            )
     else:
         # Use first sheet if no sheet name provided
         spreadsheet = await asyncio.to_thread(
             service.spreadsheets()
-            .get(
-                spreadsheetId=spreadsheet_id,
-                fields="sheets.properties"
-            )
+            .get(spreadsheetId=spreadsheet_id, fields="sheets.properties")
             .execute
         )
         sheets = spreadsheet.get("sheets", [])
@@ -1459,28 +1464,36 @@ async def write_rich_text_cell(
     full_text, format_runs = build_text_format_runs(segments)
 
     if not full_text:
-        raise UserInputError("No text content in segments. Ensure at least one segment has non-empty 'text'.")
+        raise UserInputError(
+            "No text content in segments. Ensure at least one segment has non-empty 'text'."
+        )
 
     # Build batchUpdate request with updateCells
     body = {
-        "requests": [{
-            "updateCells": {
-                "rows": [{
-                    "values": [{
-                        "userEnteredValue": {"stringValue": full_text},
-                        "textFormatRuns": format_runs
-                    }]
-                }],
-                "fields": "userEnteredValue,textFormatRuns",
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": row_idx,
-                    "endRowIndex": row_idx + 1,
-                    "startColumnIndex": col_idx,
-                    "endColumnIndex": col_idx + 1
+        "requests": [
+            {
+                "updateCells": {
+                    "rows": [
+                        {
+                            "values": [
+                                {
+                                    "userEnteredValue": {"stringValue": full_text},
+                                    "textFormatRuns": format_runs,
+                                }
+                            ]
+                        }
+                    ],
+                    "fields": "userEnteredValue,textFormatRuns",
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row_idx,
+                        "endRowIndex": row_idx + 1,
+                        "startColumnIndex": col_idx,
+                        "endColumnIndex": col_idx + 1,
+                    },
                 }
             }
-        }]
+        ]
     }
 
     # Execute batchUpdate
@@ -1546,9 +1559,13 @@ async def write_rich_text_cells(
         try:
             parsed_cells = json.loads(cells)
             if not isinstance(parsed_cells, list):
-                raise ValueError(f"cells must be a list, got {type(parsed_cells).__name__}")
+                raise ValueError(
+                    f"cells must be a list, got {type(parsed_cells).__name__}"
+                )
             cells = parsed_cells
-            logger.info(f"[write_rich_text_cells] Parsed JSON string to list with {len(cells)} cells")
+            logger.info(
+                f"[write_rich_text_cells] Parsed JSON string to list with {len(cells)} cells"
+            )
         except json.JSONDecodeError as e:
             raise UserInputError(f"Invalid JSON format for cells: {e}")
         except ValueError as e:
@@ -1557,7 +1574,9 @@ async def write_rich_text_cells(
     # Validate cells structure
     for i, cell_def in enumerate(cells):
         if not isinstance(cell_def, dict):
-            raise UserInputError(f"cells[{i}] must be a dict with 'cell' and 'segments' keys")
+            raise UserInputError(
+                f"cells[{i}] must be a dict with 'cell' and 'segments' keys"
+            )
         if "cell" not in cell_def:
             raise UserInputError(f"cells[{i}] must have a 'cell' key")
         if "segments" not in cell_def:
@@ -1567,10 +1586,7 @@ async def write_rich_text_cells(
     sheet_id = 0
     spreadsheet = await asyncio.to_thread(
         service.spreadsheets()
-        .get(
-            spreadsheetId=spreadsheet_id,
-            fields="sheets.properties"
-        )
+        .get(spreadsheetId=spreadsheet_id, fields="sheets.properties")
         .execute
     )
     sheets = spreadsheet.get("sheets", [])
@@ -1583,8 +1599,12 @@ async def write_rich_text_cells(
                 found = True
                 break
         if not found:
-            available = [s.get("properties", {}).get("title", "Unknown") for s in sheets]
-            raise UserInputError(f"Sheet '{sheet_name}' not found. Available: {', '.join(available)}")
+            available = [
+                s.get("properties", {}).get("title", "Unknown") for s in sheets
+            ]
+            raise UserInputError(
+                f"Sheet '{sheet_name}' not found. Available: {', '.join(available)}"
+            )
     elif sheets:
         sheet_id = sheets[0]["properties"]["sheetId"]
 
@@ -1600,31 +1620,41 @@ async def write_rich_text_cells(
         if not full_text:
             continue
 
-        requests.append({
-            "updateCells": {
-                "rows": [{
-                    "values": [{
-                        "userEnteredValue": {"stringValue": full_text},
-                        "textFormatRuns": format_runs
-                    }]
-                }],
-                "fields": "userEnteredValue,textFormatRuns",
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": row_idx,
-                    "endRowIndex": row_idx + 1,
-                    "startColumnIndex": col_idx,
-                    "endColumnIndex": col_idx + 1
+        requests.append(
+            {
+                "updateCells": {
+                    "rows": [
+                        {
+                            "values": [
+                                {
+                                    "userEnteredValue": {"stringValue": full_text},
+                                    "textFormatRuns": format_runs,
+                                }
+                            ]
+                        }
+                    ],
+                    "fields": "userEnteredValue,textFormatRuns",
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row_idx,
+                        "endRowIndex": row_idx + 1,
+                        "startColumnIndex": col_idx,
+                        "endColumnIndex": col_idx + 1,
+                    },
                 }
             }
-        })
+        )
 
     if not requests:
-        raise UserInputError("No valid cells to write. Ensure all cells have non-empty text segments.")
+        raise UserInputError(
+            "No valid cells to write. Ensure all cells have non-empty text segments."
+        )
 
     # Warn if too many requests
     if len(requests) > 500:
-        logger.warning(f"Large batch: {len(requests)} cells. Consider splitting for reliability.")
+        logger.warning(
+            f"Large batch: {len(requests)} cells. Consider splitting for reliability."
+        )
 
     # Execute single batchUpdate with all cells
     body = {"requests": requests}
@@ -1639,7 +1669,9 @@ async def write_rich_text_cells(
         f"for {user_google_email}."
     )
 
-    logger.info(f"Successfully wrote rich text to {len(requests)} cells for {user_google_email}.")
+    logger.info(
+        f"Successfully wrote rich text to {len(requests)} cells for {user_google_email}."
+    )
     return text_output
 
 
