@@ -1231,6 +1231,16 @@ class GoogleAuthenticationError(Exception):
         self.auth_url = auth_url
 
 
+def is_noninteractive_auth() -> bool:
+    """Return whether callers require auth failures instead of OAuth side effects."""
+    return os.getenv("WORKSPACE_MCP_NONINTERACTIVE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 async def get_authenticated_google_service(
     service_name: str,  # "gmail", "calendar", "drive", "docs"
     version: str,  # "v1", "v3"
@@ -1321,6 +1331,12 @@ async def get_authenticated_google_service(
         logger.warning(
             f"[{tool_name}] No valid credentials. Email: '{user_google_email}'."
         )
+        if is_noninteractive_auth():
+            raise GoogleAuthenticationError(
+                "AUTH_REQUIRED "
+                f"account={user_google_email} service={service_name} tool={tool_name}: "
+                "no valid credentials"
+            )
         logger.info(
             f"[{tool_name}] Valid email '{user_google_email}' provided, initiating auth flow."
         )
