@@ -520,6 +520,11 @@ Granular permissions mode provides service-by-service scope control:
 
 The `WORKSPACE_MCP_TOOLS`, `WORKSPACE_MCP_TOOL_TIER`, `WORKSPACE_MCP_READ_ONLY`, and `WORKSPACE_MCP_PERMISSIONS` environment variables provide the same controls for plugin and container installs. Empty strings are ignored. Non-empty malformed values fail closed at startup. Explicit CLI flags take precedence over mutually exclusive env vars.
 
+The unconditional OAuth base is limited to `openid`, `userinfo.email`, and
+`userinfo.profile`. Product scopes are added only by the enabled tools or
+permission map; enabling Workspace tools does not implicitly request Analytics,
+Search Console, or Merchant Center access.
+
 **Advanced legacy stdio sidecar**
 ```bash
 # Optional bridge only for local legacy stdio sessions
@@ -1594,7 +1599,7 @@ The server includes an abstract credential store API with pluggable backends for
 - **GCS-Backed Storage**: `GCSCredentialStore` — stores each user's credentials as an object in a Google Cloud Storage bucket. Supports atomic read-modify-write via generation preconditions, first-class Cloud IAM / Audit Logs integration, and transparent bucket-level CMEK encryption at rest
 - **Configurable Storage**: Environment variables select backend and location
 - **Multi-User Support**: Store and manage credentials for multiple Google accounts
-- **Automatic Directory Creation**: Storage directory is created automatically if it doesn't exist (local backend)
+- **Automatic Permission Repair**: The local storage directory is created or repaired to `0o700`; regular credential JSON files are repaired to `0o600` on startup and write without following symlinks
 
 **Configuration:**
 ```bash

@@ -142,15 +142,13 @@ def has_required_scopes(available_scopes, required_scopes):
     return all(scope in expanded for scope in required)
 
 
-# Base OAuth scopes required for user identification
-# Also includes analytics scopes used by external CLI tools
+# Base OAuth scopes required for user identification. Product scopes must stay
+# in their service-specific maps so a narrow Workspace authorization cannot
+# silently grant unrelated Analytics, Search Console, or Merchant access.
 BASE_SCOPES = [
     USERINFO_EMAIL_SCOPE,
     USERINFO_PROFILE_SCOPE,
     OPENID_SCOPE,
-    ANALYTICS_READONLY_SCOPE,
-    SEARCH_CONSOLE_READONLY_SCOPE,
-    MERCHANT_CENTER_SCOPE,
 ]
 
 # Minimal scopes required to accept an MCP bearer token at the protocol layer.

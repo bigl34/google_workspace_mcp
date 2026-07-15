@@ -299,7 +299,10 @@ def main():
     configure_safe_logging()
 
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Google Workspace MCP Server")
+    parser = argparse.ArgumentParser(
+        description="Google Workspace MCP Server",
+        allow_abbrev=False,
+    )
     parser.add_argument(
         "--single-user",
         action="store_true",

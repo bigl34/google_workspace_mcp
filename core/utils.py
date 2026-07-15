@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+import stat
 import tempfile
 import zipfile
 import ssl
@@ -265,7 +266,27 @@ def check_credentials_directory_permissions(credentials_dir: str = None) -> None
     # once. Keep the check idempotent: create the directory if needed, probe with
     # a unique temporary file, and never remove the shared directory on failure.
     try:
-        os.makedirs(credentials_dir, exist_ok=True)
+        os.makedirs(credentials_dir, mode=0o700, exist_ok=True)
+        os.chmod(credentials_dir, 0o700)
+
+        # Credential JSON files contain refresh tokens and OAuth client
+        # credentials. Repair legacy/permissive modes on every startup without
+        # following symlinks outside the credential directory.
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        cloexec = getattr(os, "O_CLOEXEC", 0)
+        for entry in os.scandir(credentials_dir):
+            if not entry.name.endswith(".json") or entry.is_symlink():
+                continue
+            try:
+                fd = os.open(entry.path, os.O_RDONLY | nofollow | cloexec)
+            except FileNotFoundError:
+                continue
+            try:
+                if stat.S_ISREG(os.fstat(fd).st_mode):
+                    os.fchmod(fd, 0o600)
+            finally:
+                os.close(fd)
+
         with tempfile.NamedTemporaryFile(
             dir=credentials_dir, prefix=".permission_test_"
         ) as probe:

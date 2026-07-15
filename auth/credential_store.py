@@ -232,6 +232,7 @@ class LocalDirectoryCredentialStore(CredentialStore):
 
         try:
             fd = os.open(str(creds_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w") as f:
                 json.dump(creds_data, f, indent=2)
             logger.info(f"Stored credentials for {user_email} to {creds_path}")

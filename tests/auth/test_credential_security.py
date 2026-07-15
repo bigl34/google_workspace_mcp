@@ -75,6 +75,25 @@ class TestFilePermissions:
         assert data["refresh_token"] == "refresh_token_value"
         assert data["client_id"] == "client_id_value"
 
+    def test_overwriting_legacy_file_repairs_permissions(self, cred_store):
+        """An existing permissive token file is tightened during refresh."""
+        cred_path = cred_store._get_credential_path("user@example.com")
+        with open(cred_path, "w") as f:
+            json.dump({}, f)
+        os.chmod(cred_path, 0o644)
+
+        mock_creds = MagicMock()
+        mock_creds.token = "tok"
+        mock_creds.refresh_token = "rtok"
+        mock_creds.token_uri = "https://oauth2.googleapis.com/token"
+        mock_creds.client_id = "cid"
+        mock_creds.client_secret = "csec"
+        mock_creds.scopes = ["openid"]
+        mock_creds.expiry = None
+
+        assert cred_store.store_credential("user@example.com", mock_creds) is True
+        assert stat.S_IMODE(os.stat(cred_path).st_mode) == 0o600
+
 
 class TestPathTraversal:
     """user_email must be sanitized before use in file paths."""

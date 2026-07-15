@@ -12,6 +12,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from auth.scopes import (
+    ANALYTICS_READONLY_SCOPE,
     BASE_SCOPES,
     CALENDAR_READONLY_SCOPE,
     CALENDAR_SCOPE,
@@ -26,14 +27,46 @@ from auth.scopes import (
     GMAIL_READONLY_SCOPE,
     GMAIL_SEND_SCOPE,
     GMAIL_SETTINGS_BASIC_SCOPE,
+    MERCHANT_CENTER_SCOPE,
+    OPENID_SCOPE,
+    SEARCH_CONSOLE_READONLY_SCOPE,
     SHEETS_READONLY_SCOPE,
     SHEETS_WRITE_SCOPE,
+    USERINFO_EMAIL_SCOPE,
+    USERINFO_PROFILE_SCOPE,
     get_scopes_for_tools,
     has_required_scopes,
     set_read_only,
 )
 from auth.permissions import get_scopes_for_permission, set_permissions
 import auth.permissions as permissions_module
+
+
+class TestBaseScopes:
+    """Base identity scopes must not silently grant unrelated services."""
+
+    def test_base_scopes_are_identity_only(self):
+        assert set(BASE_SCOPES) == {
+            OPENID_SCOPE,
+            USERINFO_EMAIL_SCOPE,
+            USERINFO_PROFILE_SCOPE,
+        }
+
+    def test_readonly_indexing_tools_exclude_unrelated_products(self):
+        set_read_only(True)
+        try:
+            scopes = set(
+                get_scopes_for_tools(["gmail", "drive", "docs", "sheets"])
+            )
+        finally:
+            set_read_only(False)
+
+        assert ANALYTICS_READONLY_SCOPE not in scopes
+        assert SEARCH_CONSOLE_READONLY_SCOPE not in scopes
+        assert MERCHANT_CENTER_SCOPE not in scopes
+        assert GMAIL_READONLY_SCOPE in scopes
+        assert DRIVE_READONLY_SCOPE in scopes
+        assert SHEETS_READONLY_SCOPE in scopes
 
 
 class TestDocsScopes:

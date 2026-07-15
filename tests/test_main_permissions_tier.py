@@ -171,6 +171,17 @@ def test_permissions_and_tools_flags_are_rejected(monkeypatch, capsys):
     assert "--permissions and --tools cannot be combined" in captured.err
 
 
+def test_abbreviated_permission_flag_is_rejected(monkeypatch, capsys):
+    monkeypatch.setattr(main, "configure_safe_logging", lambda: None)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--p", "gmail:full"])
+
+    with pytest.raises(SystemExit) as exc:
+        main.main()
+
+    assert exc.value.code == 2
+    assert "unrecognized arguments: --p gmail:full" in capsys.readouterr().err
+
+
 def test_main_skips_gcs_store_initialization_in_service_account_mode(monkeypatch):
     service_account_json = '{"type":"service_account","project_id":"p","private_key":"k","client_email":"svc@example.com"}'
 

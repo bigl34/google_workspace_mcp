@@ -5,6 +5,7 @@ concurrently. These tests pin the concurrency-safe, non-destructive behavior.
 """
 
 import os
+import stat
 import threading
 
 from core.utils import check_credentials_directory_permissions
@@ -55,3 +56,33 @@ def test_check_creates_missing_dir(tmp_path):
     target = tmp_path / "nested" / "credentials"
     check_credentials_directory_permissions(str(target))
     assert target.is_dir()
+
+
+def test_check_hardens_existing_directory_and_secret_files(tmp_path):
+    target = tmp_path / "credentials"
+    target.mkdir(mode=0o755)
+    token = target / "user@example.com.json"
+    client = target / "oauth_credentials.json"
+    token.write_text("token")
+    client.write_text("client")
+    token.chmod(0o644)
+    client.chmod(0o755)
+
+    check_credentials_directory_permissions(str(target))
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o700
+    assert stat.S_IMODE(token.stat().st_mode) == 0o600
+    assert stat.S_IMODE(client.stat().st_mode) == 0o600
+
+
+def test_check_does_not_follow_symlinks_when_hardening_files(tmp_path):
+    target = tmp_path / "credentials"
+    target.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text("not a credential")
+    outside.chmod(0o644)
+    (target / "linked.json").symlink_to(outside)
+
+    check_credentials_directory_permissions(str(target))
+
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o644
