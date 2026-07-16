@@ -55,9 +55,7 @@ class TestBaseScopes:
     def test_readonly_indexing_tools_exclude_unrelated_products(self):
         set_read_only(True)
         try:
-            scopes = set(
-                get_scopes_for_tools(["gmail", "drive", "docs", "sheets"])
-            )
+            scopes = set(get_scopes_for_tools(["gmail", "drive", "docs", "sheets"]))
         finally:
             set_read_only(False)
 
